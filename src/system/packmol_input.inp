@@ -1,0 +1,31 @@
+# PACKMOL Input File: Sodium Stearate Solution
+# Total Atoms: ~111,000
+# Box Size: 11.00 nm per side
+
+# Global tolerance for atom-atom separation (in Angstroms)
+tolerance 2.0
+output system_coordinates.pdb
+filetype pdb
+
+# The box limits for the 'inside box' command are:
+# X_min=0.0, Y_min=0.0, Z_min=0.0
+# X_max=110.0, Y_max=110.0, Z_max=110.0
+
+# --- Stearate Ions (C18H35O2-) ---
+structure stearate_monomer.pdb
+  number 1000
+  # Syntax: inside box x_min y_min z_min x_max y_max z_max
+  inside box 0.0 0.0 0.0 110.0 110.0 110.0
+end structure
+
+# --- Sodium Ions (Na+) ---
+structure sodium_ion.pdb
+  number 1000
+  inside box 0.0 0.0 0.0 110.0 110.0 110.0
+end structure
+
+# --- Water Molecules (H2O) ---
+structure water_monomer.pdb
+  number 17006
+  inside box 0.0 0.0 0.0 110.0 110.0 110.0
+end structure
