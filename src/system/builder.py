@@ -32,9 +32,30 @@ def generate_stearate_pdb():
         mol = Molecule.from_smiles(stearate_smiles, allow_undefined_stereo=True)
         # Generate a reasonable 3D conformer using RDKit's embedding method
         mol.generate_conformers(n_conformers=1)
-        
+
         # Write to PDB format
         mol.to_file(STEARATE_PDB, file_format='pdb')
+
+        # Post-process the PDB to ensure a clear residue name (STL) that PACKMOL
+        # and the downstream parameterization script can reliably detect.
+        try:
+            with open(STEARATE_PDB, 'r') as f:
+                lines = f.readlines()
+
+            fixed = []
+            for line in lines:
+                # Replace common unnamed residue labels (UNL) with STL.
+                # This is a simple textual substitution that targets the residue name
+                # field that many OpenFF PDB writers use; it's sufficient for our
+                # generated monomer PDBs.
+                fixed.append(line.replace('UNL', 'STL'))
+
+            with open(STEARATE_PDB, 'w') as f:
+                f.writelines(fixed)
+        except Exception:
+            # If post-processing fails, continue but warn the user.
+            print('Warning: could not normalize residue name in stearate PDB.')
+
         print(f"Successfully generated and saved {STEARATE_PDB}")
         return True
     except Exception as e:
@@ -46,24 +67,24 @@ def generate_simple_pdbs():
     """Writes simple PDB files for the Sodium ion (Na+) and Water (TIP3P-like)."""
     
     # --- Sodium Ion (Na+) PDB ---
-    # Atom name 'NA' is common for Amber force fields
-    # Format: ATOM      1  NA  ION A   1      0.000   0.000   0.000  1.00  0.00          NA
+    # Atom name 'NA' and residue name 'NA' so downstream code can detect Na residues
+    # reliably. Use a standard PDB ATOM record.
     na_pdb_content = (
-        "ATOM      1  NA  ION A   1      0.000   0.000   0.000  1.00  0.00          NA\n"
-        "END"
+        "ATOM      1  NA  NA  A   1      0.000   0.000   0.000  1.00  0.00          NA\n"
+        "END\n"
     )
     with open(SODIUM_PDB, 'w') as f:
         f.write(na_pdb_content)
     print(f"Generated {SODIUM_PDB}")
 
     # --- Water (H2O) PDB (TIP3P-like geometry for compatibility) ---
-    # O atom at (0, 0, 0), H atoms slightly offset
-    # Names: O, H1, H2
+    # Use residue name 'HOH' and atom names O, H1, H2 to match common OpenMM/Gromacs
+    # conventions and the downstream parameterizer.
     water_pdb_content = (
-        "ATOM      1  O   WAT A   1      0.000   0.000   0.000  1.00  0.00           O\n"
-        "ATOM      2  H1  WAT A   1      0.000   0.800   0.600  1.00  0.00           H\n"
-        "ATOM      3  H2  WAT A   1      0.000  -0.800   0.600  1.00  0.00           H\n"
-        "END"
+        "ATOM      1  O   HOH A   1      0.000   0.000   0.000  1.00  0.00           O\n"
+        "ATOM      2  H1  HOH A   1      0.000   0.800   0.600  1.00  0.00           H\n"
+        "ATOM      3  H2  HOH A   1      0.000  -0.800   0.600  1.00  0.00           H\n"
+        "END\n"
     )
     with open(WATER_PDB, 'w') as f:
         f.write(water_pdb_content)

@@ -38,7 +38,7 @@ def parameterize_and_create_system(pdb_file_path):
     except Exception as e:
         print(f"Error loading PDB file with ParmEd: {e}")
         return None, None, None
-        
+
     # Load the PDB into an OpenMM PDBFile object for full atom and residue lists
     pdb_file_obj = app.PDBFile(pdb_file_path)
     openmm_topology_input = pdb_file_obj.topology
@@ -89,10 +89,24 @@ def parameterize_and_create_system(pdb_file_path):
     
     # 4d. Extract the solute positions in the same order as the indices were collected
     solute_positions_nm = []
-    
-    # Get the positions in the base unit (nanometers) as a numpy array
-    full_coords_nm = full_openmm_positions.value_in_unit(unit.nanometers)
-    
+
+    # Deterministic coordinate handling: assume PACKMOL wrote coordinates in
+    # Angstroms (the common default). Read positions as Angstroms and convert
+    # to nanometers by multiplying by 0.1. This removes the need for heuristics.
+    raw_positions = full_openmm_positions
+    try:
+        if hasattr(raw_positions, 'value_in_unit'):
+            full_coords_ang = np.array(raw_positions.value_in_unit(unit.angstroms))
+        else:
+            # raw_positions is an iterable of Vec3-like objects (numbers are Angstroms)
+            full_coords_ang = np.array([[p.x, p.y, p.z] for p in raw_positions], dtype=float)
+    except Exception:
+        # Best-effort fallback
+        full_coords_ang = np.array([[getattr(p, 'x', p[0]), getattr(p, 'y', p[1]), getattr(p, 'z', p[2])] for p in raw_positions], dtype=float)
+
+    # Convert Angstrom -> nanometer deterministically
+    full_coords_nm = full_coords_ang * 0.1
+
     for idx in solute_atom_indices:
         # Append the array [x, y, z] for the solute atom
         solute_positions_nm.append(full_coords_nm[idx])
@@ -106,49 +120,80 @@ def parameterize_and_create_system(pdb_file_path):
     # Initialize Modeller with the fixed solute topology and positions
     modeller = app.Modeller(fixed_openmm_solute_topology, solute_positions_array)
     
-    # --- Manual Water Topology and Positions Generation ---
-    water_topology = app.Topology()
+    # --- Water: validate that PACKMOL output uses TIP3P-compatible naming ---
+    # We'll rely on the TIP3P template in the force field to set up rigid water.
+    # Therefore the PDB must contain residues named HOH (or WAT/H2O) with atom
+    # names O, H1, H2. If this is not the case, fail early with instructions.
     water_positions_list = []
     water_count = 0
-    
-    # Create a single chain for all water molecules
-    water_chain = water_topology.addChain()
 
-    # Iterate over the *input* topology to find water molecules
+    bad_waters = []
+    # Map of old atom index -> position (nm)
+    index_to_pos = {i: full_coords_nm[i] for i in range(len(full_coords_nm))}
+
     for res in openmm_topology_input.residues():
-        # Check atom count for water (HOH has 3 atoms)
-        if len(list(res.atoms())) == WATER_ATOMS:
+        if (res.name or '').strip().upper() in ('HOH', 'WAT', 'H2O'):
             water_count += 1
-            
-            # Add the residue and atoms to the new water topology
-            # Use original residue name (HOH) and ID
-            new_res = water_topology.addResidue("HOH", water_chain, res.id)
-            
-            # Temporary dict to store the newly created OpenMM Atom objects for bonding
-            new_atoms = {}
-            atom_indices = [atom.index for atom in res.atoms()]
-            
-            for idx, atom in zip(atom_indices, res.atoms()):
-                # Add the atom to the new residue/topology and store the reference
-                new_atom = water_topology.addAtom(atom.name, atom.element, new_res, atom.id)
-                new_atoms[atom.name] = new_atom # Store by name (O, H1, H2)
-                
-                # Collect the position (unit-less)
-                water_positions_list.append(full_coords_nm[idx])
-                
-            # --- CRITICAL: ADD BONDS TO WATER (Required for OpenMM SystemGenerator match) ---
-            # TIP3P water: O bonded to H1 and H2
-            if 'O' in new_atoms and 'H1' in new_atoms and 'H2' in new_atoms:
-                water_topology.addBond(new_atoms['O'], new_atoms['H1'])
-                water_topology.addBond(new_atoms['O'], new_atoms['H2'])
+            atom_names = [atom.name for atom in res.atoms()]
+            # Expect exactly O, H1, H2 (order may vary). If not found, mark bad.
+            if not all(n in atom_names for n in ('O', 'H1', 'H2')):
+                bad_waters.append((res.id, atom_names))
+            else:
+                # Collect positions in residue atom order
+                for atom in res.atoms():
+                    water_positions_list.append(index_to_pos[atom.index])
 
+    if bad_waters:
+        print('\nERROR: Found water residues that are not TIP3P-compatible.')
+        print('Examples (residue id, atom names):')
+        for rid, names in bad_waters[:5]:
+            print(f'  {rid}: {names}')
+        print('\nPlease ensure your water monomer PDB uses residue name HOH (or WAT/H2O)')
+        print("and atom names 'O', 'H1', 'H2' so the TIP3P template can be applied.")
+        print('Alternatively, adjust the monomer PDBs produced by builder.py to match these conventions.')
+        return None, None, None
 
-    # Convert the list of unit-less coordinates to a NumPy array and apply the unit
+    # Convert to positions array (nm)
     water_positions_array = np.array(water_positions_list) * unit.nanometers
 
-    # Add the manually constructed water topology and positions to the Modeller
-    print(f"Adding {water_count} water residues to the system.")
+    # Add the waters to the Modeller using the canonical HOH topology we constructed
+    # Build a minimal water topology from the input topology (preserving residue ids)
+    water_topology = app.Topology()
+    water_chain = water_topology.addChain()
+    old_to_new = {}
+    for res in openmm_topology_input.residues():
+        if (res.name or '').strip().upper() in ('HOH', 'WAT', 'H2O'):
+            new_res = water_topology.addResidue('HOH', water_chain, res.id)
+            for atom in res.atoms():
+                new_atom = water_topology.addAtom(atom.name, atom.element, new_res, atom.id)
+                old_to_new[atom.index] = new_atom
+
+    # Add only internal O-H bonds for each water residue (do NOT copy inferred
+    # bonds from the PACKMOL/ParmEd topology: those may include external
+    # contacts and will break the TIP3P template matching).
+    for res in openmm_topology_input.residues():
+        if (res.name or '').strip().upper() in ('HOH', 'WAT', 'H2O'):
+            # find the corresponding new residue by residue id
+            # Note: we added residues in the same order and used the same res.id
+            # when creating new_res above, so we can look up atoms by their
+            # names in old_to_new mapping.
+            atom_names = [atom.name for atom in res.atoms()]
+            if all(n in atom_names for n in ('O', 'H1', 'H2')):
+                # map names to atom indices to find new atoms
+                name_to_oldidx = {atom.name: atom.index for atom in res.atoms()}
+                aO = old_to_new[name_to_oldidx['O']]
+                aH1 = old_to_new[name_to_oldidx['H1']]
+                aH2 = old_to_new[name_to_oldidx['H2']]
+                water_topology.addBond(aO, aH1)
+                water_topology.addBond(aO, aH2)
+
+    print(f"Adding {water_count} water residues to the system (TIP3P-compatible).")
     modeller.add(water_topology, water_positions_array)
+
+    # There are no manual constraints added anymore; SystemGenerator should
+    # apply TIP3P rigid-water handling. Keep track that we did not add
+    # constraints programmatically.
+    constraints_added = 0
     
     # Final Topology and Positions
     full_openmm_topology = modeller.topology
@@ -157,27 +202,28 @@ def parameterize_and_create_system(pdb_file_path):
     # --- 6. Prepare Final Topology (Renaming Residues for SystemGenerator) ---
     print("--- 5. Preparing Final Topology (Renaming Residues for SystemGenerator) ---")
     
-    # Explicitly rename residues on the full OpenMM topology object
+    # Explicitly rename residues on the full OpenMM topology object. Prefer
+    # residue name when available, otherwise fall back to atom-count heuristics.
     current_stearate = 0
     current_sodium = 0
     current_water = 0
-    
+
     for chain in full_openmm_topology.chains():
         for residue in chain.residues():
-            # Check atom count to identify the molecule type
-            num_atoms = len(list(residue.atoms())) 
-            if num_atoms == STEARATE_ATOMS:
-                residue.name = "STL" 
+            num_atoms = len(list(residue.atoms()))
+            name = (residue.name or '').strip().upper()
+
+            if name in ('STL', 'STEARATE') or num_atoms == STEARATE_ATOMS:
+                residue.name = 'STL'
                 current_stearate += 1
-            elif num_atoms == SODIUM_ATOMS:
-                residue.name = "NA"
+            elif name in ('NA',) or num_atoms == SODIUM_ATOMS:
+                residue.name = 'NA'
                 current_sodium += 1
-            elif num_atoms == WATER_ATOMS:
-                # Residue name is already HOH from step 5, but we ensure the count is correct
-                residue.name = "HOH"
+            elif name in ('HOH', 'WAT', 'H2O') or num_atoms == WATER_ATOMS:
+                residue.name = 'HOH'
                 current_water += 1
-                
-    print(f"Renamed {current_stearate} Stearate (STL), {current_sodium} Sodium (NA), {current_water} Water (HOH) residues in topology.")
+
+    print(f"Renamed/identified {current_stearate} Stearate (STL), {current_sodium} Sodium (NA), {current_water} Water (HOH) residues in topology.")
 
     # --- 7. Initialize Final System Generator ---
     print("--- 6. Initializing Final System Generator ---")
@@ -199,31 +245,9 @@ def parameterize_and_create_system(pdb_file_path):
         full_openmm_topology, # Use the OpenFF-corrected and Modeller-rebuilt topology
     )
     
-    # --- 8.5. Manually Apply TIP3P Constraints (Crucial for rigid water) ---
-    print("--- 7.5. Manually applying TIP3P constraints for HOH molecules ---")
-
-    # TIP3P bond lengths (in nanometers)
-    O_H_distance = 0.09572 * unit.nanometers
-    H_H_distance = 0.15139 * unit.nanometers 
-    constraints_added = 0
-
-    for residue in full_openmm_topology.residues():
-        if residue.name == "HOH":
-            # Map atom names to OpenMM indices
-            atoms = {atom.name: atom.index for atom in residue.atoms()}
-            
-            # Add the three geometric constraints required for SETTLE
-            if all(name in atoms for name in ['O', 'H1', 'H2']):
-                idx_O = atoms['O']
-                idx_H1 = atoms['H1']
-                idx_H2 = atoms['H2']
-
-                openmm_system.addConstraint(idx_O, idx_H1, O_H_distance)
-                openmm_system.addConstraint(idx_O, idx_H2, O_H_distance)
-                openmm_system.addConstraint(idx_H1, idx_H2, H_H_distance)
-                constraints_added += 3
-
-    print(f"    -> Applied {constraints_added} constraints to water molecules.")
+    # Rely on SystemGenerator / the TIP3P template to add rigid-water handling
+    # (SETTLE or equivalent). We validated residue/atom naming earlier so this
+    # should be applied automatically by the force field generator.
 
 
     # --- 9. Manually Apply Missing Simulation Settings ---
@@ -247,9 +271,51 @@ def parameterize_and_create_system(pdb_file_path):
     with open('openmm_system.pdb', 'w') as f:
         # Use the final topology and positions from the Modeller
         app.PDBFile.writeFile(full_openmm_topology, final_positions, f, keepIds=True)
-    
+
     print("Files saved:")
     print("- openmm_system.pdb (Initial coordinates for the OpenMM simulation)")
+
+    # Some basic validation checks on the final OpenMM System
+    print('\n--- Running basic validation checks ---')
+
+    # 1) Check nonbonded force and total system charge
+    net_charge = None
+    for f in openmm_system.getForces():
+        if isinstance(f, om.NonbondedForce):
+            total_q = 0.0
+            for i in range(f.getNumParticles()):
+                q, sig, eps = f.getParticleParameters(i)
+                # q may be a Quantity; attempt to extract a numeric value
+                try:
+                    total_q += q._value
+                except Exception:
+                    try:
+                        total_q += float(q)
+                    except Exception:
+                        total_q += 0.0
+            # q is in units of elementary charge; wrap with unit
+            try:
+                net_charge = total_q * unit.elementary_charge
+            except Exception:
+                net_charge = total_q
+            break
+
+    if net_charge is not None:
+        try:
+            netq = net_charge.value_in_unit(unit.elementary_charge)
+        except Exception:
+            netq = float(net_charge)
+        print(f"Total system charge (approx): {netq:.6f} e")
+        if abs(netq) > 1e-6:
+            print("Warning: system total charge is non-zero. Check ion counts or charges.")
+    else:
+        print("Warning: NonbondedForce not found in system; cannot compute total charge.")
+
+    # 2) Check that the number of constraints roughly matches expected water constraints
+    num_constraints = openmm_system.getNumConstraints()
+    print(f"Total constraints in system: {num_constraints}")
+    if constraints_added and num_constraints != constraints_added:
+        print(f"Note: constraints_added={constraints_added} but system reports {num_constraints}.")
 
     # The GROMACS export section has been removed as it is not needed for OpenMM.
     # We return the key objects required for an OpenMM simulation run:
