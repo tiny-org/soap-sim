@@ -1,7 +1,13 @@
 import openmm.app as app
 import openmm as om
-from openff.toolkit.topology import Molecule, Topology
-from openmmforcefields.generators import SystemGenerator
+try:
+    from openff.toolkit.topology import Molecule, Topology
+    from openmmforcefields.generators import SystemGenerator
+except ImportError:
+    Molecule = None
+    Topology = None
+    SystemGenerator = None
+
 import parmed
 import os
 import openmm.unit as unit 
@@ -30,6 +36,13 @@ def parameterize_and_create_system(pdb_file_path):
     print(f"--- 1. Loading coordinates from {pdb_file_path} ---")
     if not os.path.exists(pdb_file_path):
         print(f"ERROR: PDB file not found at {pdb_file_path}. Please check your path.")
+        return None, None, None
+
+    if Molecule is None or SystemGenerator is None:
+        print("\nCRITICAL ERROR: 'openff-toolkit' or 'openmmforcefields' not found.")
+        print("These packages are required to parameterize the Stearate ion.")
+        print("On linux-aarch64, these might not be available via conda-forge.")
+        print("Please install them if possible, or use a different machine/architecture.")
         return None, None, None
 
     # Load the structure using ParmEd to get coordinates and a basic structure
@@ -254,8 +267,8 @@ def parameterize_and_create_system(pdb_file_path):
     print("--- 8. Manually applying PME and Box Vectors to the OpenMM System ---")
     
     # The box vectors must be set manually since the PDB does not contain them
-    # Based on PACKMOL box size (110.0 Angstroms = 11.0 nm)
-    box_size_nm = 11.0
+    # Based on PACKMOL box size (40.0 Angstroms = 4.0 nm)
+    box_size_nm = 4.0
     box_vector = om.Vec3(box_size_nm * unit.nanometers, 0, 0)
     openmm_system.setDefaultPeriodicBoxVectors(
         box_vector,

@@ -1,16 +1,19 @@
 import os
 import subprocess
 import numpy as np
-from openff.toolkit.topology import Molecule
+import numpy as np
+from rdkit import Chem
+from rdkit.Chem import AllChem
 
 # --- Simulation Parameters ---
-# The target number of molecules, based on our 50:50 weight ratio calculation
-NUM_STEARATE = 1000
-NUM_SODIUM = 1000
-NUM_WATER = 17006
-# We calculated an estimated box side length of ~10.2 nm. We use 11.0 nm 
-# to ensure PACKMOL has space to avoid initial clashes.
-BOX_SIZE = 110.0 # Angstroms (11.0 nm)
+# Reduced system size for "small" simulation
+NUM_STEARATE = 50
+NUM_SODIUM = 50
+NUM_WATER = 850
+# Estimated box size for this smaller system:
+# Volume approx: (50 * ~300 A^3) + (850 * ~30 A^3) = 15000 + 25500 = 40500 A^3
+# Cube root(40500) ~= 34.3 A. We use 40.0 A (4.0 nm) to be safe and allow relaxation.
+BOX_SIZE = 40.0 # Angstroms (4.0 nm)
 
 # --- Filenames ---
 STEARATE_PDB = 'stearate_monomer.pdb'
@@ -27,14 +30,15 @@ def generate_stearate_pdb():
     stearate_smiles = "CCCCCCCCCCCCCCCCCC(=O)[O-]"
     print(f"Generating 3D coordinates for {stearate_smiles}...")
 
-    # Create OpenFF Molecule object and generate an initial conformer
+    # Create RDKit Molecule object and generate an initial conformer
     try:
-        mol = Molecule.from_smiles(stearate_smiles, allow_undefined_stereo=True)
-        # Generate a reasonable 3D conformer using RDKit's embedding method
-        mol.generate_conformers(n_conformers=1)
-
+        mol = Chem.MolFromSmiles(stearate_smiles)
+        mol = Chem.AddHs(mol)
+        # Generate a reasonable 3D conformer
+        AllChem.EmbedMolecule(mol)
+        
         # Write to PDB format
-        mol.to_file(STEARATE_PDB, file_format='pdb')
+        Chem.MolToPDBFile(mol, STEARATE_PDB)
 
         # Post-process the PDB to ensure a clear residue name (STL) that PACKMOL
         # and the downstream parameterization script can reliably detect.
@@ -60,7 +64,7 @@ def generate_stearate_pdb():
         return True
     except Exception as e:
         print(f"Error generating stearate PDB: {e}")
-        print("Please ensure openff-toolkit is installed (conda install -c conda-forge openff-toolkit)")
+        print("Please ensure rdkit is installed (conda install -c conda-forge rdkit)")
         return False
 
 def generate_simple_pdbs():
