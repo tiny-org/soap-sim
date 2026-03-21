@@ -113,9 +113,22 @@ def parameterize_system(packed_pdb: Path, config: Config):
     modeller.add(water_topo, water_pos)
 
     _rename_residues(modeller.topology, ns, ns, nw)
-    log.info("Modeller topology: %d atoms, %d residues",
+
+    # Set periodic box vectors on the topology BEFORE creating the system.
+    # SystemGenerator checks the topology for periodicity: without box
+    # vectors it falls back to NoCutoff instead of PME.
+    box_nm = sys_cfg.box_size_angstrom * 0.1  # A -> nm
+    box_vectors = (
+        mm.Vec3(box_nm, 0, 0),
+        mm.Vec3(0, box_nm, 0),
+        mm.Vec3(0, 0, box_nm),
+    )
+    modeller.topology.setPeriodicBoxVectors(box_vectors)
+
+    log.info("Modeller topology: %d atoms, %d residues, box %.2f nm",
              modeller.topology.getNumAtoms(),
-             sum(1 for _ in modeller.topology.residues()))
+             sum(1 for _ in modeller.topology.residues()),
+             box_nm)
 
     # ── 5. SystemGenerator ────────────────────────────────────────────
     log.info("Creating SystemGenerator  (solute: %s, water: %s)",
@@ -135,15 +148,15 @@ def parameterize_system(packed_pdb: Path, config: Config):
     log.info("Generating OpenMM System (this may take a moment) ...")
     system = generator.create_system(modeller.topology)
 
-    # ── 6. Periodic box vectors ───────────────────────────────────────
-    box_nm = sys_cfg.box_size_angstrom * 0.1  # A -> nm
-    system.setDefaultPeriodicBoxVectors(
-        mm.Vec3(box_nm, 0, 0) * unit.nanometers,
-        mm.Vec3(0, box_nm, 0) * unit.nanometers,
-        mm.Vec3(0, 0, box_nm) * unit.nanometers,
-    )
+    # ── 6. Quick sanity checks ────────────────────────────────────────
+    is_periodic = system.usesPeriodicBoundaryConditions()
+    log.info("Periodic: %s", is_periodic)
+    if not is_periodic:
+        raise RuntimeError(
+            "System is not periodic -- PME was not applied. "
+            "Check that the topology has box vectors before create_system()."
+        )
 
-    # ── 7. Quick sanity checks ────────────────────────────────────────
     for force in system.getForces():
         if isinstance(force, mm.NonbondedForce):
             q_total = sum(

@@ -109,42 +109,6 @@ def _equilibrate_nvt(simulation: app.Simulation, config: Config,
             simulation.topology, state.getPositions(), fh,
         )
 
-    # Clear reporters before production
-    simulation.reporters.clear()
-
-
-def _production_npt(simulation: app.Simulation, system: mm.System,
-                    config: Config, sim_dir: Path) -> None:
-    """NPT production run with Monte Carlo barostat."""
-    sim_cfg = config.simulation
-    steps = sim_cfg.production.steps
-
-    # Add barostat for NPT
-    barostat = mm.MonteCarloBarostat(
-        sim_cfg.pressure_bar * unit.bar,
-        sim_cfg.temperature_kelvin * unit.kelvin,
-        25,  # attempt frequency (steps)
-    )
-    system.addForce(barostat)
-    simulation.context.reinitialize(preserveState=True)
-
-    log.info("NPT production: %d steps (%.1f ps) at %.1f K / %.1f bar ...",
-             steps,
-             steps * sim_cfg.timestep_fs / 1000,
-             sim_cfg.temperature_kelvin,
-             sim_cfg.pressure_bar)
-
-    _add_production_reporters(simulation, config, sim_dir)
-    simulation.step(steps)
-
-    state = simulation.context.getState(getEnergy=True, getPositions=True)
-    log.info("Final potential energy: %s", state.getPotentialEnergy())
-
-    with (sim_dir / "final.pdb").open("w") as fh:
-        app.PDBFile.writeFile(
-            simulation.topology, state.getPositions(), fh,
-        )
-
 
 # ── Public API ────────────────────────────────────────────────────────
 
@@ -156,23 +120,64 @@ def run_simulation(system: mm.System, topology: app.Topology,
     sim_dir = Path(config.output.directory) / "simulate"
     sim_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Integrator ────────────────────────────────────────────────────
-    integrator = mm.LangevinMiddleIntegrator(
-        sim_cfg.temperature_kelvin * unit.kelvin,
-        sim_cfg.friction_per_ps / unit.picoseconds,
-        sim_cfg.timestep_fs * unit.femtoseconds,
-    )
-
     platform = _select_platform(sim_cfg.platform)
-    simulation = app.Simulation(topology, system, integrator, platform)
-    simulation.context.setPositions(positions)
+
+    def _make_integrator():
+        return mm.LangevinMiddleIntegrator(
+            sim_cfg.temperature_kelvin * unit.kelvin,
+            sim_cfg.friction_per_ps / unit.picoseconds,
+            sim_cfg.timestep_fs * unit.femtoseconds,
+        )
+
+    # ── Phase 1: Minimize + NVT equilibration (no barostat) ──────────
+    nvt_sim = app.Simulation(topology, system, _make_integrator(), platform)
+    nvt_sim.context.setPositions(positions)
 
     log.info("System: %d atoms | Platform: %s",
              topology.getNumAtoms(), platform.getName())
 
-    # ── Run protocol ──────────────────────────────────────────────────
-    _minimize(simulation, config, sim_dir)
-    _equilibrate_nvt(simulation, config, sim_dir)
-    _production_npt(simulation, system, config, sim_dir)
+    _minimize(nvt_sim, config, sim_dir)
+    _equilibrate_nvt(nvt_sim, config, sim_dir)
+
+    # Save full state (positions, velocities, box vectors)
+    nvt_state = nvt_sim.context.getState(
+        getPositions=True, getVelocities=True,
+    )
+    del nvt_sim  # free GPU/OpenCL resources
+
+    # ── Phase 2: NPT production (with barostat) ─────────────────────
+    barostat = mm.MonteCarloBarostat(
+        sim_cfg.pressure_bar * unit.bar,
+        sim_cfg.temperature_kelvin * unit.kelvin,
+        25,  # attempt frequency (steps)
+    )
+    system.addForce(barostat)
+
+    npt_sim = app.Simulation(topology, system, _make_integrator(), platform)
+    npt_sim.context.setPositions(nvt_state.getPositions())
+    npt_sim.context.setVelocities(nvt_state.getVelocities())
+    npt_sim.context.setPeriodicBoxVectors(
+        *nvt_state.getPeriodicBoxVectors()
+    )
+
+    steps = sim_cfg.production.steps
+    log.info("NPT production: %d steps (%.1f ps) at %.1f K / %.1f bar ...",
+             steps,
+             steps * sim_cfg.timestep_fs / 1000,
+             sim_cfg.temperature_kelvin,
+             sim_cfg.pressure_bar)
+
+    _add_production_reporters(npt_sim, config, sim_dir)
+    npt_sim.step(steps)
+
+    final_state = npt_sim.context.getState(
+        getEnergy=True, getPositions=True,
+    )
+    log.info("Final potential energy: %s", final_state.getPotentialEnergy())
+
+    with (sim_dir / "final.pdb").open("w") as fh:
+        app.PDBFile.writeFile(
+            topology, final_state.getPositions(), fh,
+        )
 
     log.info("Simulation complete.  Output in %s/", sim_dir)

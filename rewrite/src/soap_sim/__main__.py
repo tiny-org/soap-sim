@@ -4,9 +4,17 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import warnings
 from pathlib import Path
 
 from .config import Config, load_config
+
+# Silence FutureWarning from torch via openff-interchange
+warnings.filterwarnings("ignore", category=FutureWarning,
+                        module=r"openff\.interchange")
+# Silence pint redefining units
+warnings.filterwarnings("ignore", message=r"Redefining",
+                        module=r"pint")
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -16,6 +24,14 @@ def _setup_logging(verbose: bool) -> None:
         level=level,
         stream=sys.stdout,
     )
+    # Suppress noisy third-party loggers
+    if not verbose:
+        for name in (
+            "openff.interchange",
+            "openmmforcefields",
+            "pint",
+        ):
+            logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def _load(args: argparse.Namespace) -> Config:
