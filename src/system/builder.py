@@ -1,7 +1,6 @@
 import os
 import subprocess
 import numpy as np
-import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
@@ -81,13 +80,13 @@ def generate_simple_pdbs():
         f.write(na_pdb_content)
     print(f"Generated {SODIUM_PDB}")
 
-    # --- Water (H2O) PDB (TIP3P-like geometry for compatibility) ---
+    # --- Water (H2O) PDB (TIP3P geometry: O-H = 0.9572 A, H-O-H = 104.52 deg) ---
     # Use residue name 'HOH' and atom names O, H1, H2 to match common OpenMM/Gromacs
     # conventions and the downstream parameterizer.
     water_pdb_content = (
         "ATOM      1  O   HOH A   1      0.000   0.000   0.000  1.00  0.00           O\n"
-        "ATOM      2  H1  HOH A   1      0.000   0.800   0.600  1.00  0.00           H\n"
-        "ATOM      3  H2  HOH A   1      0.000  -0.800   0.600  1.00  0.00           H\n"
+        "ATOM      2  H1  HOH A   1      0.757   0.000   0.587  1.00  0.00           H\n"
+        "ATOM      3  H2  HOH A   1     -0.757   0.000   0.587  1.00  0.00           H\n"
         "END\n"
     )
     with open(WATER_PDB, 'w') as f:
@@ -148,8 +147,12 @@ def run_packmol():
     print("\n--- Running PACKMOL ---")
     print(f"This may take several minutes to place {NUM_STEARATE + NUM_SODIUM + NUM_WATER} molecules.")
     try:
-        # Assuming 'packmol' executable is in your system's PATH
-        result = subprocess.run(['packmol'], input=PACKMOL_INPUT, text=True, capture_output=True, check=True)
+        # PACKMOL's Fortran runtime requires a seekable stdin, so pipe via
+        # shell redirection rather than Python's subprocess stdin pipe.
+        result = subprocess.run(
+            f'packmol < {PACKMOL_INPUT}',
+            shell=True, text=True, capture_output=True, check=True,
+        )
         print("\nPACKMOL completed successfully!")
         print(f"Output saved to: {OUTPUT_PDB}")
         
@@ -181,12 +184,8 @@ if __name__ == "__main__":
         write_packmol_input()
         
         # 3. Run PACKMOL to generate the final system PDB
-        # This step requires the 'packmol' executable to be installed.
-        # run_packmol()
+        run_packmol()
         
-        print("\n--- Next Step ---")
-        print(f"A new stearate monomer PDB has been generated.")
-        print(f"You MUST manually execute PACKMOL again to generate a new system_coordinates.pdb with the C18 molecule:")
-        print(f"    packmol < {PACKMOL_INPUT}")
-        print(f"Once done, the {OUTPUT_PDB} file will contain the coordinates for the entire system.")
-        print(f"You can then proceed to the parameterization script using the {OUTPUT_PDB} file.")
+        print("\n--- Build Complete ---")
+        print(f"System coordinates written to {OUTPUT_PDB}.")
+        print(f"You can now proceed to the parameterization script.")

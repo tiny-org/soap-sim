@@ -11,8 +11,8 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 # --- 1. Define Molecules and SMILES ---
-# Stearate anion (C17H35COO-) and Sodium cation (Na+)
-STEARATE_SMILES = 'CCCCCCCCCCCCCCCCC(=O)[O-]'
+# Stearate anion (C18H35O2-, i.e. CH3(CH2)16COO-) and Sodium cation (Na+)
+STEARATE_SMILES = 'CCCCCCCCCCCCCCCCCC(=O)[O-]'
 SODIUM_SMILES = '[Na+]'
 ION_COORDS = [] # List to hold RDKit-generated coordinates
 

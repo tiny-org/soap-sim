@@ -13,7 +13,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Geometry import Point3D
 
-STEARATE_SMILES = "CCCCCCCCCCCCCCCCC(=O)[O-]"
+STEARATE_SMILES = "CCCCCCCCCCCCCCCCCC(=O)[O-]"
 SODIUM_SMILES = "[Na+]"
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "c18-na.pdb"
 

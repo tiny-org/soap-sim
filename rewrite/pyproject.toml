@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soap-sim"
+version = "0.1.0"
+description = "Molecular dynamics simulation of sodium stearate / water mixtures"
+requires-python = ">=3.12"
+# Runtime deps -- openmm, rdkit, openff-toolkit and packmol are conda-only;
+# install them via conda/micromamba before `pip install -e .`
+dependencies = [
+    "numpy",
+    "parmed",
+]
+
+[project.scripts]
+soap-sim = "soap_sim.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

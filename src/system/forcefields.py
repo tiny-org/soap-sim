@@ -103,22 +103,10 @@ def parameterize_and_create_system(pdb_file_path):
     # 4d. Extract the solute positions in the same order as the indices were collected
     solute_positions_nm = []
 
-    # Deterministic coordinate handling: assume PACKMOL wrote coordinates in
-    # Angstroms (the common default). Read positions as Angstroms and convert
-    # to nanometers by multiplying by 0.1. This removes the need for heuristics.
+    # OpenMM PDBFile.getPositions() returns Quantity in nanometers.
+    # Extract coordinates directly in nanometers.
     raw_positions = full_openmm_positions
-    try:
-        if hasattr(raw_positions, 'value_in_unit'):
-            full_coords_ang = np.array(raw_positions.value_in_unit(unit.angstroms))
-        else:
-            # raw_positions is an iterable of Vec3-like objects (numbers are Angstroms)
-            full_coords_ang = np.array([[p.x, p.y, p.z] for p in raw_positions], dtype=float)
-    except Exception:
-        # Best-effort fallback
-        full_coords_ang = np.array([[getattr(p, 'x', p[0]), getattr(p, 'y', p[1]), getattr(p, 'z', p[2])] for p in raw_positions], dtype=float)
-
-    # Convert Angstrom -> nanometer deterministically
-    full_coords_nm = full_coords_ang * 0.1
+    full_coords_nm = np.array(raw_positions.value_in_unit(unit.nanometers))
 
     for idx in solute_atom_indices:
         # Append the array [x, y, z] for the solute atom
@@ -202,11 +190,6 @@ def parameterize_and_create_system(pdb_file_path):
 
     print(f"Adding {water_count} water residues to the system (TIP3P-compatible).")
     modeller.add(water_topology, water_positions_array)
-
-    # There are no manual constraints added anymore; SystemGenerator should
-    # apply TIP3P rigid-water handling. Keep track that we did not add
-    # constraints programmatically.
-    constraints_added = 0
     
     # Final Topology and Positions
     full_openmm_topology = modeller.topology
@@ -244,10 +227,18 @@ def parameterize_and_create_system(pdb_file_path):
     print(f"Using Solvent FF: {WATER_FF}")
     
     # Final System Generator (handles combining FFs and water models)
+    # Use PME for long-range electrostatics and constrain H-bonds for 2 fs timestep
     final_generator = SystemGenerator(
         forcefields=[WATER_FF], 
         small_molecule_forcefield=OPENFF_FF,
         molecules=unique_solute_molecules,
+        forcefield_kwargs={
+            'constraints': app.HBonds,
+        },
+        periodic_forcefield_kwargs={
+            'nonbondedMethod': app.PME,
+            'nonbondedCutoff': 1.0 * unit.nanometers,
+        },
     )
     
     # --- 8. Create the final OpenMM System ---
@@ -269,11 +260,11 @@ def parameterize_and_create_system(pdb_file_path):
     # The box vectors must be set manually since the PDB does not contain them
     # Based on PACKMOL box size (40.0 Angstroms = 4.0 nm)
     box_size_nm = 4.0
-    box_vector = om.Vec3(box_size_nm * unit.nanometers, 0, 0)
+    box_edge = box_size_nm * unit.nanometers
     openmm_system.setDefaultPeriodicBoxVectors(
-        box_vector,
-        om.Vec3(0, box_vector[0], 0),
-        om.Vec3(0, 0, box_vector[0])
+        om.Vec3(box_edge, 0, 0),
+        om.Vec3(0, box_edge, 0),
+        om.Vec3(0, 0, box_edge),
     )
     
     print("\n✅ Final System Parameterization Complete.")
@@ -324,11 +315,9 @@ def parameterize_and_create_system(pdb_file_path):
     else:
         print("Warning: NonbondedForce not found in system; cannot compute total charge.")
 
-    # 2) Check that the number of constraints roughly matches expected water constraints
+    # 2) Check that the system has constraints (expected from HBonds + TIP3P)
     num_constraints = openmm_system.getNumConstraints()
     print(f"Total constraints in system: {num_constraints}")
-    if constraints_added and num_constraints != constraints_added:
-        print(f"Note: constraints_added={constraints_added} but system reports {num_constraints}.")
 
     # The GROMACS export section has been removed as it is not needed for OpenMM.
     # We return the key objects required for an OpenMM simulation run:

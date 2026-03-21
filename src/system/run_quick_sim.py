@@ -53,6 +53,12 @@ def run_quick_validation(pdb_path=INPUT_PDB, nsteps=500):
     print("Minimizing...")
     simulation.minimizeEnergy()
 
+    # Report energy every 100 steps so we can monitor stability
+    simulation.reporters.append(app.StateDataReporter(
+        sys.stdout, 100, step=True,
+        potentialEnergy=True, kineticEnergy=True, temperature=True,
+    ))
+
     print(f"Running {nsteps} steps of Langevin dynamics...")
     start = time.time()
     simulation.step(nsteps)
@@ -62,7 +68,7 @@ def run_quick_validation(pdb_path=INPUT_PDB, nsteps=500):
     potential = state.getPotentialEnergy()
     kinetic = state.getKineticEnergy()
 
-    print(f"Elapsed: {elapsed:.2f}s | Potential: {potential} | Kinetic: {kinetic}")
+    print(f"\nElapsed: {elapsed:.2f}s | Potential: {potential} | Kinetic: {kinetic}")
     return 0
 
 

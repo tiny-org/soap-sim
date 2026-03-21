@@ -21,6 +21,56 @@ Soap molecular simulation with OpenMM
 * python builder.py
 * packmol < packmol_input.inp
 
+------
+
+The simulation runs in three stages: environment setup, system building, and running the simulation. Here are the steps:
+
+1. Environment Setup
+
+# Install micromamba (if not already installed)
+"${SHELL}" <(curl -L micro.mamba.pm/install.sh)
+alias conda='micromamba'
+
+# Create and activate the environment
+conda create -n soap_sim_env python=3.12
+conda activate soap_sim_env
+
+# Install all dependencies
+conda install -c conda-forge openmm openmmforcefields openff-toolkit rdkit parmed numpy packmol
+
+# On Apple Silicon, force CPU mode
+export OPENMM_DEFAULT_PLATFORM=CPU
+
+# Verify OpenMM works
+python -m openmm.testInstallation
+
+2. Build the System
+
+This generates monomer PDB files, writes the PACKMOL input, and runs PACKMOL to pack 50 stearate ions + 50 sodium ions + 850 water molecules into a 4 nm box.
+
+cd src/system
+python builder.py
+
+Output: system_coordinates.pdb
+
+3. Parameterize the System
+
+This assigns OpenFF (Sage 2.2.0) force field parameters to the stearate/sodium, combines with TIP3P water, and sets up PME electrostatics.
+
+# Still in src/system/
+python forcefields.py
+
+Output: openmm_system.pdb (the parameterized coordinates ready for simulation)
+
+4. Run the Simulation
+
+A quick 500-step validation run with energy minimization + Langevin dynamics at 300 K:
+
+# Still in src/system/
+python run_quick_sim.py
+
+This will print energy and temperature every 100 steps so you can verify the system is stable.
+
 ## Links
 
 Smiles to PDB Converter: https://www.cheminfo.org/Chemistry/Cheminformatics/FormatConverter/index.html
