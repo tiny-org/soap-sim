@@ -146,11 +146,20 @@ def run_simulation(system: mm.System, topology: app.Topology,
     del nvt_sim  # free GPU/OpenCL resources
 
     # ── Phase 2: NPT production (with barostat) ─────────────────────
-    barostat = mm.MonteCarloBarostat(
-        sim_cfg.pressure_bar * unit.bar,
-        sim_cfg.temperature_kelvin * unit.kelvin,
-        25,  # attempt frequency (steps)
-    )
+    pressure = sim_cfg.pressure_bar * unit.bar
+    temperature = sim_cfg.temperature_kelvin * unit.kelvin
+
+    if sim_cfg.barostat == "anisotropic":
+        barostat = mm.MonteCarloAnisotropicBarostat(
+            mm.Vec3(pressure, pressure, pressure),
+            temperature,
+            True, True, True,  # scale x, y, z independently
+            25,
+        )
+        log.info("Using anisotropic barostat (each axis scales independently)")
+    else:
+        barostat = mm.MonteCarloBarostat(pressure, temperature, 25)
+
     system.addForce(barostat)
 
     npt_sim = app.Simulation(topology, system, _make_integrator(), platform)

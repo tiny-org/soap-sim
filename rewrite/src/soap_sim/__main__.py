@@ -49,10 +49,11 @@ def cmd_build(args: argparse.Namespace) -> None:
 
     config = _load(args)
     sys_cfg = config.system
+    bx, by, bz = sys_cfg.box_angstrom
     print(f"System: {sys_cfg.num_stearate} NaStearate + {sys_cfg.num_water} "
           f"H2O  ({sys_cfg.weight_fraction:.0%} by weight)")
-    print(f"Box: {sys_cfg.box_size_angstrom:.1f} A "
-          f"({sys_cfg.box_size_angstrom / 10:.2f} nm)")
+    print(f"Box: {bx:.1f} x {by:.1f} x {bz:.1f} A "
+          f"({bx/10:.2f} x {by/10:.2f} x {bz/10:.2f} nm)")
 
     packed = build_system(config)
     print(f"\nPacked system written to {packed}")

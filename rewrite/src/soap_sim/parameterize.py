@@ -117,18 +117,18 @@ def parameterize_system(packed_pdb: Path, config: Config):
     # Set periodic box vectors on the topology BEFORE creating the system.
     # SystemGenerator checks the topology for periodicity: without box
     # vectors it falls back to NoCutoff instead of PME.
-    box_nm = sys_cfg.box_size_angstrom * 0.1  # A -> nm
+    bx, by, bz = [v * 0.1 for v in sys_cfg.box_angstrom]  # A -> nm
     box_vectors = (
-        mm.Vec3(box_nm, 0, 0),
-        mm.Vec3(0, box_nm, 0),
-        mm.Vec3(0, 0, box_nm),
+        mm.Vec3(bx, 0, 0),
+        mm.Vec3(0, by, 0),
+        mm.Vec3(0, 0, bz),
     )
     modeller.topology.setPeriodicBoxVectors(box_vectors)
 
-    log.info("Modeller topology: %d atoms, %d residues, box %.2f nm",
+    log.info("Modeller topology: %d atoms, %d residues, box %.2f x %.2f x %.2f nm",
              modeller.topology.getNumAtoms(),
              sum(1 for _ in modeller.topology.residues()),
-             box_nm)
+             bx, by, bz)
 
     # ── 5. SystemGenerator ────────────────────────────────────────────
     log.info("Creating SystemGenerator  (solute: %s, water: %s)",

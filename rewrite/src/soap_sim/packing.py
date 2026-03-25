@@ -15,33 +15,37 @@ def _write_packmol_input(config: Config, monomer_dir: Path,
                          output_pdb: Path, inp_path: Path) -> None:
     """Write the PACKMOL control file."""
     sys = config.system
-    box = sys.box_size_angstrom
+    bx, by, bz = sys.box_angstrom
 
     inp_path.write_text(
         f"# PACKMOL input -- sodium stearate / water mixture\n"
         f"tolerance 2.0\n"
+        f"discale 1.5\n"
+        f"movebadrandom\n"
+        f"nloop 200\n"
         f"output {output_pdb}\n"
         f"filetype pdb\n"
         f"\n"
         f"# Stearate ions (C18H35O2-)\n"
         f"structure {monomer_dir / 'stearate.pdb'}\n"
         f"  number {sys.num_stearate}\n"
-        f"  inside box 0.0 0.0 0.0 {box} {box} {box}\n"
+        f"  inside box 0.0 0.0 0.0 {bx} {by} {bz}\n"
         f"end structure\n"
         f"\n"
         f"# Sodium ions (Na+)\n"
         f"structure {monomer_dir / 'sodium.pdb'}\n"
         f"  number {sys.num_sodium}\n"
-        f"  inside box 0.0 0.0 0.0 {box} {box} {box}\n"
+        f"  inside box 0.0 0.0 0.0 {bx} {by} {bz}\n"
         f"end structure\n"
         f"\n"
         f"# Water (TIP3P)\n"
         f"structure {monomer_dir / 'water.pdb'}\n"
         f"  number {sys.num_water}\n"
-        f"  inside box 0.0 0.0 0.0 {box} {box} {box}\n"
+        f"  inside box 0.0 0.0 0.0 {bx} {by} {bz}\n"
         f"end structure\n"
     )
-    log.info("Wrote PACKMOL input -> %s  (box %.1f A)", inp_path, box)
+    log.info("Wrote PACKMOL input -> %s  (box %.1f x %.1f x %.1f A)",
+             inp_path, bx, by, bz)
 
 
 def _run_packmol(inp_path: Path) -> None:

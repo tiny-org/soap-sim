@@ -1,0 +1,36 @@
+# Lamellar phase: 50% NaStearate at 80 C in an elongated box
+# The z-dimension is long enough for ~4 bilayer repeat units (d ~ 4-5 nm)
+# Anisotropic barostat lets each axis relax independently
+
+[system]
+num_stearate     = 500
+weight_fraction  = 0.50
+box_dimensions   = [50.0, 50.0, 200.0]   # Angstroms (5 x 5 x 20 nm)
+
+[forcefield]
+small_molecule = "openff-2.2.0.offxml"
+water_model    = "tip3p.xml"
+
+[simulation]
+temperature_celsius = 80.0
+pressure_bar        = 1.0
+timestep_fs         = 2.0
+friction_per_ps     = 1.0
+platform            = "auto"
+barostat            = "anisotropic"
+
+[simulation.minimize]
+max_iterations = 1000
+
+[simulation.equilibrate]
+steps        = 50_000
+log_interval = 500
+
+[simulation.production]
+steps               = 25_000_000   # 50 ns -- lamellar ordering is slow
+dcd_interval        = 5000         # save every 10 ps
+log_interval        = 5000
+checkpoint_interval = 50_000
+
+[output]
+directory = "output_lamellar"

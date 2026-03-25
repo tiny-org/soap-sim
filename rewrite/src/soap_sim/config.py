@@ -4,6 +4,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 # Molecular weights (g/mol)
 MW_SODIUM_STEARATE = 306.45  # Na+ + C18H35O2-
@@ -35,6 +36,7 @@ class SystemConfig:
     num_stearate: int = 50
     weight_fraction: float = 0.50
     target_density: float = 1.0
+    box_dimensions: Optional[tuple[float, float, float]] = None  # A, override
 
     @property
     def num_sodium(self) -> int:
@@ -46,8 +48,17 @@ class SystemConfig:
 
     @property
     def box_size_angstrom(self) -> float:
+        """Cubic box side length (used when box_dimensions is None)."""
         return _box_size_angstrom(self.num_stearate, self.num_water,
                                   self.target_density)
+
+    @property
+    def box_angstrom(self) -> tuple[float, float, float]:
+        """(x, y, z) box dimensions in Angstroms."""
+        if self.box_dimensions is not None:
+            return self.box_dimensions
+        s = self.box_size_angstrom
+        return (s, s, s)
 
 
 @dataclass(frozen=True)
@@ -82,6 +93,7 @@ class SimulationConfig:
     timestep_fs: float = 2.0
     friction_per_ps: float = 1.0
     platform: str = "auto"
+    barostat: str = "isotropic"  # isotropic | anisotropic
     minimize: MinimizeConfig = field(default_factory=MinimizeConfig)
     equilibrate: EquilibrateConfig = field(default_factory=EquilibrateConfig)
     production: ProductionConfig = field(default_factory=ProductionConfig)
@@ -112,7 +124,11 @@ def load_config(path: Path) -> Config:
     with open(path, "rb") as fh:
         raw = tomllib.load(fh)
 
-    system = SystemConfig(**raw.get("system", {}))
+    sys_raw = dict(raw.get("system", {}))
+    box_dim = sys_raw.pop("box_dimensions", None)
+    if box_dim is not None:
+        box_dim = tuple(box_dim)
+    system = SystemConfig(**sys_raw, box_dimensions=box_dim)
     forcefield = ForceFieldConfig(**raw.get("forcefield", {}))
 
     sim_raw = dict(raw.get("simulation", {}))
