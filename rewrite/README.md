@@ -24,8 +24,7 @@ micromamba create -n soap python=3.12
 micromamba activate soap
 
 # 2. Install dependencies
-micromamba install -c conda-forge \
-    openmm openmmforcefields openff-toolkit rdkit parmed numpy packmol
+micromamba install -c conda-forge openmm openmmforcefields openff-toolkit rdkit parmed numpy packmol pymol-open-source
 
 # 3. On Apple Silicon, force CPU mode
 export OPENMM_DEFAULT_PLATFORM=CPU
@@ -42,6 +41,9 @@ Verify OpenMM works: `python -m openmm.testInstallation`
 All commands read from `config.toml` in the current directory:
 
 ```bash
+# Remove output if major config changes
+rm -rf output/
+
 # Run everything (build + parameterize + simulate + analyze)
 python -m soap_sim run
 
@@ -50,6 +52,11 @@ python -m soap_sim build           # -> output/build/packed.pdb
 python -m soap_sim parameterize    # -> output/parameterize/system.xml
 python -m soap_sim simulate        # -> output/simulate/trajectory.dcd
 python -m soap_sim analyze         # print summary statistics
+```
+
+Show 3D model of simulation
+```bash
+pymol output/parameterize/topology.pdb output/simulate/trajectory.dcd
 ```
 
 Use a different config file:

@@ -1,7 +1,7 @@
 # ── System composition ────────────────────────────────────────────────
 [system]
-num_stearate     = 50       # number of sodium stearate ion pairs
-weight_fraction  = 0.50     # mass fraction of sodium stearate (0-1)
+num_stearate     = 80       # number of sodium stearate ion pairs
+weight_fraction  = 0.10     # mass fraction of sodium stearate (0-1)
 target_density   = 1.0      # g/cm³, used only to estimate initial box size
 # num_water is computed automatically from weight_fraction
 
@@ -26,9 +26,9 @@ steps        = 50_000      # 100 ps NVT thermalisation
 log_interval = 500
 
 [simulation.production]
-steps               = 500_000   # 1 ns NPT production
-dcd_interval        = 1000
-log_interval        = 1000
+steps               = 15_000_000   # 10 ns NPT production
+dcd_interval        = 5000
+log_interval        = 5000
 checkpoint_interval = 10_000
 
 # ── Output ────────────────────────────────────────────────────────────
