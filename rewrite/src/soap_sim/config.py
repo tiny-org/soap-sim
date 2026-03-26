@@ -3,21 +3,18 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 MW_WATER = 18.015
 
-# Default stearate-only system (backward compat)
-_DEFAULT_STEARATE_SMILES = "CCCCCCCCCCCCCCCCCC(=O)[O-]"
 
-
+@lru_cache(maxsize=32)
 def _mw_with_h(smiles: str) -> float:
     """Molecular weight including implicit hydrogens (uses RDKit)."""
     from rdkit import Chem
     from rdkit.Chem import Descriptors
-    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
-    return Descriptors.MolWt(mol)
+    return Descriptors.MolWt(Chem.AddHs(Chem.MolFromSmiles(smiles)))
 
 
 # ── Dataclasses ───────────────────────────────────────────────────────
@@ -37,21 +34,14 @@ class SoluteSpec:
 
 @dataclass(frozen=True)
 class SystemConfig:
-    solutes: tuple[SoluteSpec, ...] = (
-        SoluteSpec("stearate", _DEFAULT_STEARATE_SMILES, 50),
-    )
+    solutes: tuple[SoluteSpec, ...] = ()
     counterion_smiles: str = "[Na+]"
-    num_water: int = 851
+    num_water: int = 0
     target_density: float = 1.0
-    box_dimensions: Optional[tuple[float, float, float]] = None
+    box_dimensions: tuple[float, float, float] | None = None
 
     @property
     def num_counterions(self) -> int:
-        """One counterion per anionic solute molecule."""
-        return sum(s.count for s in self.solutes)
-
-    @property
-    def total_solute_molecules(self) -> int:
         return sum(s.count for s in self.solutes)
 
     @property
@@ -140,54 +130,52 @@ def _num_water_from_fraction(solutes, counterion_smiles, weight_fraction):
 
 
 def load_config(path: Path) -> Config:
-    """Read *path* and return a fully-validated :class:`Config`."""
+    """Read a TOML config file and return a validated :class:`Config`."""
     with open(path, "rb") as fh:
         raw = tomllib.load(fh)
 
+    # ── System ────────────────────────────────────────────────────────
     sys_raw = dict(raw.get("system", {}))
+
     box_dim = sys_raw.pop("box_dimensions", None)
     if box_dim is not None:
         box_dim = tuple(box_dim)
 
-    # ── Parse solutes: new [[system.solutes]] or legacy num_stearate ──
-    if "solutes" in sys_raw:
-        solutes = tuple(SoluteSpec(**s) for s in sys_raw.pop("solutes"))
-    elif "num_stearate" in sys_raw:
-        ns = sys_raw.pop("num_stearate")
-        solutes = (SoluteSpec("stearate", _DEFAULT_STEARATE_SMILES, ns),)
-    else:
-        solutes = SystemConfig.solutes  # default
+    solutes = tuple(
+        SoluteSpec(**s) for s in sys_raw.pop("solutes", [])
+    )
+    if not solutes:
+        raise ValueError("Config must define at least one [[system.solutes]] entry")
 
     counterion = sys_raw.pop("counterion_smiles", "[Na+]")
 
-    # ── Parse water count ─────────────────────────────────────────────
     if "num_water" in sys_raw:
         num_water = sys_raw.pop("num_water")
-    elif "weight_fraction" in sys_raw:
-        wf = sys_raw.pop("weight_fraction")
-        num_water = _num_water_from_fraction(solutes, counterion, wf)
     elif "water_weight_fraction" in sys_raw:
         wf = sys_raw.pop("water_weight_fraction")
         num_water = _num_water_from_fraction(solutes, counterion, wf)
     else:
-        num_water = SystemConfig.num_water
+        raise ValueError("Config must set either num_water or water_weight_fraction")
 
-    td = sys_raw.pop("target_density", 1.0)
-    system = SystemConfig(solutes=solutes, counterion_smiles=counterion,
-                          num_water=num_water, target_density=td,
-                          box_dimensions=box_dim)
+    system = SystemConfig(
+        solutes=solutes,
+        counterion_smiles=counterion,
+        num_water=num_water,
+        target_density=sys_raw.pop("target_density", 1.0),
+        box_dimensions=box_dim,
+    )
 
+    # ── Force field ───────────────────────────────────────────────────
     forcefield = ForceFieldConfig(**raw.get("forcefield", {}))
 
+    # ── Simulation ────────────────────────────────────────────────────
     sim_raw = dict(raw.get("simulation", {}))
-    minimize = MinimizeConfig(**sim_raw.pop("minimize", {}))
-    equilibrate = EquilibrateConfig(**sim_raw.pop("equilibrate", {}))
-    production = ProductionConfig(**sim_raw.pop("production", {}))
     simulation = SimulationConfig(
-        **sim_raw,
-        minimize=minimize,
-        equilibrate=equilibrate,
-        production=production,
+        **{k: v for k, v in sim_raw.items()
+           if k not in ("minimize", "equilibrate", "production")},
+        minimize=MinimizeConfig(**sim_raw.get("minimize", {})),
+        equilibrate=EquilibrateConfig(**sim_raw.get("equilibrate", {})),
+        production=ProductionConfig(**sim_raw.get("production", {})),
     )
 
     output = OutputConfig(**raw.get("output", {}))

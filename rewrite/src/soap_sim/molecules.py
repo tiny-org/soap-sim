@@ -6,6 +6,7 @@ to stearate -- any combination of surfactants can be simulated.
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from pathlib import Path
 
 from rdkit import Chem
@@ -20,12 +21,13 @@ _RDKIT_SEED = 42
 # ── Generic helpers ───────────────────────────────────────────────────
 
 
+@lru_cache(maxsize=32)
 def atom_count(smiles: str) -> int:
     """Number of atoms (including explicit H) for a SMILES string."""
-    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
-    return mol.GetNumAtoms()
+    return Chem.AddHs(Chem.MolFromSmiles(smiles)).GetNumAtoms()
 
 
+@lru_cache(maxsize=32)
 def _embed(smiles: str) -> Chem.Mol:
     """RDKit Mol with 3-D coordinates for any SMILES."""
     mol = Chem.MolFromSmiles(smiles)
@@ -94,7 +96,6 @@ def generate_water_pdb(path: Path) -> None:
 
 def generate_all_monomers(config, output_dir: Path) -> dict[str, Path]:
     """Write all monomer PDBs for the configured system."""
-    from .config import Config
     output_dir.mkdir(parents=True, exist_ok=True)
     sys_cfg = config.system
     paths: dict[str, Path] = {}
