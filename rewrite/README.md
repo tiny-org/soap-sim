@@ -12,7 +12,8 @@ TOML file.
 micromamba create -n soap python=3.12
 micromamba activate soap
 micromamba install -c conda-forge \
-    openmm openmmforcefields openff-toolkit rdkit parmed numpy packmol
+    openmm openmmforcefields openff-toolkit rdkit parmed numpy packmol \
+    pymol-open-source
 export OPENMM_DEFAULT_PLATFORM=CPU   # Apple Silicon only
 cd rewrite && pip install -e .
 python -m openmm.testInstallation
@@ -70,6 +71,31 @@ directory = "output_soap"
 
 See `config_soap.toml` (4-soap mixture) and `config_lamellar.toml` (lamellar phase)
 for complete examples.
+
+## Visualization
+
+Use PyMOL to inspect structures and play back trajectories:
+
+```bash
+# View the final frame
+pymol output/simulate/final.pdb
+
+# Play back the production trajectory
+pymol output/parameterize/topology.pdb output/simulate/trajectory.dcd
+```
+
+Useful PyMOL commands once inside the viewer:
+
+```
+hide everything              # clear the view
+show sticks, resn LAU+MYR+PAL+STE   # show soap chains as sticks
+show spheres, resn NA        # show counterions as spheres
+show lines, resn HOH         # show water as thin lines
+set sphere_scale, 0.4        # shrink spheres
+color green, resn LAU+MYR+PAL+STE
+color purple, resn NA
+preset.ball_and_stick()      # alternative: ball-and-stick for everything
+```
 
 ## Output
 
