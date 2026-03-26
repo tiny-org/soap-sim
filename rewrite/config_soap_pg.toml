@@ -1,0 +1,59 @@
+# Soap bar formulation: 4 soaps (10% each), water (10%), propylene glycol (50%)
+# All percentages by weight. Counts computed with 50 stearate as reference.
+
+[[system.solutes]]
+name   = "laurate"
+smiles = "CCCCCCCCCCCC(=O)[O-]"
+count  = 69
+
+[[system.solutes]]
+name   = "myristate"
+smiles = "CCCCCCCCCCCCCC(=O)[O-]"
+count  = 61
+
+[[system.solutes]]
+name   = "palmitate"
+smiles = "CCCCCCCCCCCCCCCC(=O)[O-]"
+count  = 55
+
+[[system.solutes]]
+name   = "stearate"
+smiles = "CCCCCCCCCCCCCCCCCC(=O)[O-]"
+count  = 50
+
+[[system.solutes]]
+name   = "propylene_glycol"
+smiles = "CC(O)CO"
+count  = 1007
+
+[system]
+num_water      = 851
+target_density = 0.9
+
+[forcefield]
+small_molecule = "openff-2.2.0.offxml"
+water_model    = "tip3p.xml"
+
+[simulation]
+temperature_celsius = 80.0
+pressure_bar        = 1.0
+timestep_fs         = 2.0
+friction_per_ps     = 1.0
+platform            = "auto"
+barostat            = "isotropic"
+
+[simulation.minimize]
+max_iterations = 1000
+
+[simulation.equilibrate]
+steps        = 50_000
+log_interval = 500
+
+[simulation.production]
+steps               = 5_000_000    # 10 ns
+dcd_interval        = 5000
+log_interval        = 5000
+checkpoint_interval = 50_000
+
+[output]
+directory = "output_soap_pg"
