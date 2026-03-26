@@ -10,6 +10,13 @@ MW_WATER = 18.015
 
 
 @lru_cache(maxsize=32)
+def _formal_charge(smiles: str) -> int:
+    """Net formal charge of a molecule from its SMILES."""
+    from rdkit import Chem
+    return Chem.GetFormalCharge(Chem.MolFromSmiles(smiles))
+
+
+@lru_cache(maxsize=32)
 def _mw_with_h(smiles: str) -> float:
     """Molecular weight including implicit hydrogens (uses RDKit)."""
     from rdkit import Chem
@@ -42,7 +49,15 @@ class SystemConfig:
 
     @property
     def num_counterions(self) -> int:
-        return sum(s.count for s in self.solutes)
+        """Counterions needed to neutralize the total solute charge."""
+        total_solute_charge = sum(
+            s.count * _formal_charge(s.smiles) for s in self.solutes
+        )
+        ci_charge = _formal_charge(self.counterion_smiles)
+        if ci_charge == 0:
+            return 0
+        # e.g. -235 total charge / +1 per Na+ = 235 counterions
+        return abs(total_solute_charge) // abs(ci_charge)
 
     @property
     def box_angstrom(self) -> tuple[float, float, float]:
