@@ -1,4 +1,8 @@
-"""Molecule generation with RDKit and OpenFF interop."""
+"""Molecule generation with RDKit and OpenFF interop.
+
+All functions accept arbitrary SMILES so the system is not limited
+to stearate -- any combination of surfactants can be simulated.
+"""
 from __future__ import annotations
 
 import logging
@@ -10,72 +14,72 @@ from openff.toolkit.topology import Molecule
 
 log = logging.getLogger(__name__)
 
-# ── SMILES & constants ────────────────────────────────────────────────
-
-STEARATE_SMILES = "CCCCCCCCCCCCCCCCCC(=O)[O-]"  # C18H35O2-
-SODIUM_SMILES = "[Na+]"
-
-STEARATE_NUM_ATOMS = 55   # 18C + 2O + 35H
-SODIUM_NUM_ATOMS = 1
-WATER_NUM_ATOMS = 3
-
-_RDKIT_SEED = 42  # deterministic conformer generation
+_RDKIT_SEED = 42
 
 
-# ── RDKit helpers ─────────────────────────────────────────────────────
+# ── Generic helpers ───────────────────────────────────────────────────
 
 
-def _embed_stearate() -> Chem.Mol:
-    """Return an RDKit Mol with 3-D coordinates for the stearate anion."""
-    mol = Chem.MolFromSmiles(STEARATE_SMILES)
+def atom_count(smiles: str) -> int:
+    """Number of atoms (including explicit H) for a SMILES string."""
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    return mol.GetNumAtoms()
+
+
+def _embed(smiles: str) -> Chem.Mol:
+    """RDKit Mol with 3-D coordinates for any SMILES."""
+    mol = Chem.MolFromSmiles(smiles)
     if mol is None:
-        raise ValueError(f"Cannot parse SMILES: {STEARATE_SMILES}")
+        raise ValueError(f"Cannot parse SMILES: {smiles}")
     mol = Chem.AddHs(mol)
+    if mol.GetNumAtoms() == 1:
+        # Single atom (ion) -- just place at origin
+        conf = Chem.Conformer(1)
+        mol.AddConformer(conf, assignId=True)
+        return mol
     params = AllChem.ETKDGv3()
     params.randomSeed = _RDKIT_SEED
     if AllChem.EmbedMolecule(mol, params) != 0:
-        raise RuntimeError("RDKit embedding failed for stearate")
+        raise RuntimeError(f"RDKit embedding failed for {smiles}")
     AllChem.MMFFOptimizeMolecule(mol)
     return mol
 
 
-# ── OpenFF molecules ──────────────────────────────────────────────────
-# Built from the same RDKit objects used for PDB generation so that the
-# atom ordering is guaranteed to match.
-
-
-def create_stearate_off() -> Molecule:
-    """OpenFF Molecule with atom ordering matching :func:`generate_stearate_pdb`."""
-    return Molecule.from_rdkit(_embed_stearate(), allow_undefined_stereo=True)
-
-
-def create_sodium_off() -> Molecule:
-    return Molecule.from_smiles(SODIUM_SMILES)
+def create_off_molecule(smiles: str) -> Molecule:
+    """OpenFF Molecule with atom ordering matching :func:`generate_pdb`."""
+    return Molecule.from_rdkit(_embed(smiles), allow_undefined_stereo=True)
 
 
 # ── PDB writers ───────────────────────────────────────────────────────
 
 
-def generate_stearate_pdb(path: Path) -> None:
-    mol = _embed_stearate()
+def generate_solute_pdb(smiles: str, name: str, path: Path) -> None:
+    """Write a 3-D monomer PDB for any SMILES."""
+    mol = _embed(smiles)
     Chem.MolToPDBFile(mol, str(path))
-    # Normalise residue name for downstream identification
+    resname = name[:3].upper()
     text = path.read_text()
-    path.write_text(text.replace("UNL", "STL"))
-    log.info("Wrote stearate monomer -> %s  (%d atoms)", path, mol.GetNumAtoms())
+    path.write_text(text.replace("UNL", resname))
+    log.info("Wrote %s -> %s  (%d atoms)", name, path, mol.GetNumAtoms())
 
 
-def generate_sodium_pdb(path: Path) -> None:
+def generate_counterion_pdb(smiles: str, path: Path) -> None:
+    """Write a PDB for a single-atom ion (Na+, K+, Cl-, ...)."""
+    mol = Chem.MolFromSmiles(smiles)
+    elem = mol.GetAtomWithIdx(0).GetSymbol()
+    resname = elem[:3].upper()
+    # Fixed-width PDB ATOM record
     path.write_text(
-        "ATOM      1  NA  NA  A   1"
-        "      0.000   0.000   0.000  1.00  0.00          NA\n"
-        "END\n"
+        f"ATOM      1 {elem:>3s}  {resname:<3s} A   1"
+        f"      0.000   0.000   0.000  1.00  0.00"
+        f"          {elem:>2s}\n"
+        f"END\n"
     )
-    log.info("Wrote sodium ion -> %s", path)
+    log.info("Wrote counterion (%s) -> %s", elem, path)
 
 
 def generate_water_pdb(path: Path) -> None:
-    # TIP3P geometry: O-H = 0.9572 A, H-O-H = 104.52 deg
+    """TIP3P water geometry: O-H = 0.9572 A, H-O-H = 104.52 deg."""
     path.write_text(
         "ATOM      1  O   HOH A   1"
         "      0.000   0.000   0.000  1.00  0.00           O\n"
@@ -88,15 +92,24 @@ def generate_water_pdb(path: Path) -> None:
     log.info("Wrote TIP3P water -> %s", path)
 
 
-def generate_all_monomers(output_dir: Path) -> dict[str, Path]:
-    """Write monomer PDBs and return ``{name: path}`` mapping."""
+def generate_all_monomers(config, output_dir: Path) -> dict[str, Path]:
+    """Write all monomer PDBs for the configured system."""
+    from .config import Config
     output_dir.mkdir(parents=True, exist_ok=True)
-    paths = {
-        "stearate": output_dir / "stearate.pdb",
-        "sodium":   output_dir / "sodium.pdb",
-        "water":    output_dir / "water.pdb",
-    }
-    generate_stearate_pdb(paths["stearate"])
-    generate_sodium_pdb(paths["sodium"])
-    generate_water_pdb(paths["water"])
+    sys_cfg = config.system
+    paths: dict[str, Path] = {}
+
+    for spec in sys_cfg.solutes:
+        p = output_dir / f"{spec.name}.pdb"
+        generate_solute_pdb(spec.smiles, spec.name, p)
+        paths[spec.name] = p
+
+    p = output_dir / "counterion.pdb"
+    generate_counterion_pdb(sys_cfg.counterion_smiles, p)
+    paths["counterion"] = p
+
+    p = output_dir / "water.pdb"
+    generate_water_pdb(p)
+    paths["water"] = p
+
     return paths

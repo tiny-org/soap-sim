@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from .config import Config
-from .molecules import generate_all_monomers
+from .molecules import generate_all_monomers, atom_count
 
 log = logging.getLogger(__name__)
 
@@ -16,34 +16,50 @@ def _write_packmol_input(config: Config, monomer_dir: Path,
     """Write the PACKMOL control file."""
     sys = config.system
     bx, by, bz = sys.box_angstrom
+    box_str = f"{bx} {by} {bz}"
 
-    inp_path.write_text(
-        f"# PACKMOL input -- sodium stearate / water mixture\n"
-        f"tolerance 2.0\n"
-        f"discale 1.5\n"
-        f"movebadrandom\n"
-        f"nloop 200\n"
-        f"output {output_pdb}\n"
-        f"filetype pdb\n"
-        f"\n"
-        f"# Stearate ions (C18H35O2-)\n"
-        f"structure {monomer_dir / 'stearate.pdb'}\n"
-        f"  number {sys.num_stearate}\n"
-        f"  inside box 0.0 0.0 0.0 {bx} {by} {bz}\n"
-        f"end structure\n"
-        f"\n"
-        f"# Sodium ions (Na+)\n"
-        f"structure {monomer_dir / 'sodium.pdb'}\n"
-        f"  number {sys.num_sodium}\n"
-        f"  inside box 0.0 0.0 0.0 {bx} {by} {bz}\n"
-        f"end structure\n"
-        f"\n"
-        f"# Water (TIP3P)\n"
-        f"structure {monomer_dir / 'water.pdb'}\n"
-        f"  number {sys.num_water}\n"
-        f"  inside box 0.0 0.0 0.0 {bx} {by} {bz}\n"
-        f"end structure\n"
-    )
+    lines = [
+        "# PACKMOL input -- soap / water mixture",
+        "tolerance 2.0",
+        "discale 1.5",
+        "movebadrandom",
+        "nloop 200",
+        f"output {output_pdb}",
+        "filetype pdb",
+        "",
+    ]
+
+    # One block per solute type
+    for spec in sys.solutes:
+        lines += [
+            f"# {spec.name} ({spec.smiles})",
+            f"structure {monomer_dir / f'{spec.name}.pdb'}",
+            f"  number {spec.count}",
+            f"  inside box 0.0 0.0 0.0 {box_str}",
+            "end structure",
+            "",
+        ]
+
+    # Counterions
+    lines += [
+        f"# Counterions ({sys.counterion_smiles})",
+        f"structure {monomer_dir / 'counterion.pdb'}",
+        f"  number {sys.num_counterions}",
+        f"  inside box 0.0 0.0 0.0 {box_str}",
+        "end structure",
+        "",
+    ]
+
+    # Water
+    lines += [
+        "# Water (TIP3P)",
+        f"structure {monomer_dir / 'water.pdb'}",
+        f"  number {sys.num_water}",
+        f"  inside box 0.0 0.0 0.0 {box_str}",
+        "end structure",
+    ]
+
+    inp_path.write_text("\n".join(lines) + "\n")
     log.info("Wrote PACKMOL input -> %s  (box %.1f x %.1f x %.1f A)",
              inp_path, bx, by, bz)
 
@@ -67,33 +83,26 @@ def _run_packmol(inp_path: Path) -> None:
 
 
 def build_system(config: Config) -> Path:
-    """Generate monomers, pack them, return path to the packed PDB.
-
-    Directory layout under *config.output.directory*::
-
-        build/
-            stearate.pdb
-            sodium.pdb
-            water.pdb
-            packmol.inp
-            packed.pdb
-    """
+    """Generate monomers, pack them, return path to the packed PDB."""
     build_dir = Path(config.output.directory) / "build"
     build_dir.mkdir(parents=True, exist_ok=True)
 
-    monomer_dir = build_dir
-    generate_all_monomers(monomer_dir)
+    generate_all_monomers(config, build_dir)
 
     packed_pdb = build_dir / "packed.pdb"
     inp_path = build_dir / "packmol.inp"
 
-    _write_packmol_input(config, monomer_dir, packed_pdb, inp_path)
+    _write_packmol_input(config, build_dir, packed_pdb, inp_path)
     _run_packmol(inp_path)
 
-    n_total = (config.system.num_stearate * 55
-               + config.system.num_sodium
-               + config.system.num_water * 3)
-    log.info("Packed system: %d stearate, %d Na+, %d water  (%d atoms)",
-             config.system.num_stearate, config.system.num_sodium,
-             config.system.num_water, n_total)
+    sys = config.system
+    n_total = (
+        sum(s.count * atom_count(s.smiles) for s in sys.solutes)
+        + sys.num_counterions * atom_count(sys.counterion_smiles)
+        + sys.num_water * 3
+    )
+    for s in sys.solutes:
+        log.info("  %s: %d molecules", s.name, s.count)
+    log.info("  counterions: %d  |  water: %d  |  total atoms: %d",
+             sys.num_counterions, sys.num_water, n_total)
     return packed_pdb

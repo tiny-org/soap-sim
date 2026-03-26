@@ -12,25 +12,17 @@ from openff.toolkit.topology import Topology
 from openmmforcefields.generators import SystemGenerator
 
 from .config import Config
-from .molecules import (
-    STEARATE_NUM_ATOMS,
-    SODIUM_NUM_ATOMS,
-    WATER_NUM_ATOMS,
-    create_stearate_off,
-    create_sodium_off,
-)
+from .molecules import atom_count, create_off_molecule
 
 log = logging.getLogger(__name__)
+
+WATER_NUM_ATOMS = 3
 
 
 # ── Internal helpers ──────────────────────────────────────────────────
 
 
-def _build_water_topology(num_water: int) -> tuple[app.Topology, np.ndarray]:
-    """Return a clean water-only OpenMM Topology (O, H1, H2 per residue).
-
-    Also returns a boolean mask (not used here but kept for symmetry).
-    """
+def _build_water_topology(num_water: int) -> app.Topology:
     topo = app.Topology()
     chain = topo.addChain()
     oxygen = app.Element.getBySymbol("O")
@@ -45,99 +37,117 @@ def _build_water_topology(num_water: int) -> tuple[app.Topology, np.ndarray]:
     return topo
 
 
-def _rename_residues(topology: app.Topology,
-                     n_stearate: int, n_sodium: int, n_water: int) -> None:
-    """Ensure every residue has the name the SystemGenerator expects."""
-    idx = 0
-    for chain in topology.chains():
-        for res in chain.residues():
-            if idx < n_stearate:
-                res.name = "STL"
-            elif idx < n_stearate + n_sodium:
-                res.name = "NA"
-            else:
-                res.name = "HOH"
-            idx += 1
+def _rename_residues(topology: app.Topology, solute_specs, n_counterions,
+                     n_water, counterion_resname: str) -> None:
+    """Label every residue for SystemGenerator template matching."""
+    # Build expected sequence: solute1×n1, solute2×n2, ..., counterions, water
+    labels = []
+    for spec in solute_specs:
+        labels.extend([spec.residue_name] * spec.count)
+    labels.extend([counterion_resname] * n_counterions)
+    labels.extend(["HOH"] * n_water)
+
+    for idx, (chain, res) in enumerate(
+        (ch, r) for ch in topology.chains() for r in ch.residues()
+    ):
+        if idx < len(labels):
+            res.name = labels[idx]
 
 
 # ── Public API ────────────────────────────────────────────────────────
 
 
 def parameterize_system(packed_pdb: Path, config: Config):
-    """Read PACKMOL output, assign force-field parameters, return OpenMM objects.
+    """Read PACKMOL output, assign FF parameters, return OpenMM objects.
 
-    Returns
-    -------
-    system : openmm.System
-    topology : openmm.app.Topology
-    positions : openmm.unit.Quantity
+    Returns ``(system, topology, positions)``.
     """
     sys_cfg = config.system
     ff_cfg = config.forcefield
 
-    # ── 1. Load raw positions from PACKMOL PDB ───────────────────────
+    # ── 1. Load raw positions ─────────────────────────────────────────
     log.info("Loading packed coordinates from %s", packed_pdb)
     pdb = app.PDBFile(str(packed_pdb))
     all_pos_nm = np.array(pdb.getPositions().value_in_unit(unit.nanometers))
 
-    # ── 2. Slice positions by known PACKMOL ordering ─────────────────
-    #   stearate(1..N) | sodium(1..N) | water(1..N)
-    ns = sys_cfg.num_stearate
-    nw = sys_cfg.num_water
-    n_stearate_atoms = ns * STEARATE_NUM_ATOMS
-    n_sodium_atoms = ns * SODIUM_NUM_ATOMS
-    n_solute_atoms = n_stearate_atoms + n_sodium_atoms
-    n_water_atoms = nw * WATER_NUM_ATOMS
+    # ── 2. Slice positions by PACKMOL ordering ────────────────────────
+    #   solute1 × n1 | solute2 × n2 | … | counterions | water
+    offset = 0
+    solute_atom_counts = []
+    for spec in sys_cfg.solutes:
+        na = spec.count * atom_count(spec.smiles)
+        solute_atom_counts.append(na)
+        offset += na
 
-    solute_pos = all_pos_nm[:n_solute_atoms] * unit.nanometers
-    water_pos = all_pos_nm[n_solute_atoms:n_solute_atoms + n_water_atoms] * unit.nanometers
+    ci_atoms = sys_cfg.num_counterions * atom_count(sys_cfg.counterion_smiles)
+    offset += ci_atoms
 
-    log.info("Atoms: %d stearate + %d sodium + %d water = %d total",
-             n_stearate_atoms, n_sodium_atoms, n_water_atoms,
-             n_stearate_atoms + n_sodium_atoms + n_water_atoms)
+    n_water_atoms = sys_cfg.num_water * WATER_NUM_ATOMS
+
+    n_solute_total = sum(solute_atom_counts) + ci_atoms
+    solute_pos = all_pos_nm[:n_solute_total] * unit.nanometers
+    water_pos = all_pos_nm[n_solute_total:n_solute_total + n_water_atoms] * unit.nanometers
+
+    log.info("Atoms: %s + %d counterion + %d water = %d",
+             " + ".join(str(n) for n in solute_atom_counts),
+             ci_atoms, n_water_atoms,
+             n_solute_total + n_water_atoms)
 
     # ── 3. Build solute topology via OpenFF ───────────────────────────
     log.info("Building solute topology with OpenFF ...")
-    stearate_mol = create_stearate_off()
-    sodium_mol = create_sodium_off()
-    stearate_mol.name = "STL"
-    sodium_mol.name = "NA"
+    off_molecules = []   # unique molecules for SystemGenerator
+    solute_mol_list = []  # ordered list matching PACKMOL layout
 
-    solute_mols = [stearate_mol] * ns + [sodium_mol] * ns
-    off_topo = Topology.from_molecules(solute_mols)
+    seen_smiles: dict[str, object] = {}
+    for spec in sys_cfg.solutes:
+        if spec.smiles not in seen_smiles:
+            mol = create_off_molecule(spec.smiles)
+            mol.name = spec.residue_name
+            seen_smiles[spec.smiles] = mol
+            off_molecules.append(mol)
+        solute_mol_list.extend([seen_smiles[spec.smiles]] * spec.count)
+
+    # Counterion
+    ci_smiles = sys_cfg.counterion_smiles
+    if ci_smiles not in seen_smiles:
+        ci_mol = create_off_molecule(ci_smiles)
+        ci_mol.name = "NA"
+        seen_smiles[ci_smiles] = ci_mol
+        off_molecules.append(ci_mol)
+    solute_mol_list.extend([seen_smiles[ci_smiles]] * sys_cfg.num_counterions)
+
+    off_topo = Topology.from_molecules(solute_mol_list)
     omm_solute_topo = off_topo.to_openmm()
 
     # ── 4. Combine solute + water via Modeller ────────────────────────
     modeller = app.Modeller(omm_solute_topo, solute_pos)
-    water_topo = _build_water_topology(nw)
+    water_topo = _build_water_topology(sys_cfg.num_water)
     modeller.add(water_topo, water_pos)
 
-    _rename_residues(modeller.topology, ns, ns, nw)
+    from rdkit import Chem
+    ci_elem = Chem.MolFromSmiles(ci_smiles).GetAtomWithIdx(0).GetSymbol()
+    _rename_residues(modeller.topology, sys_cfg.solutes,
+                     sys_cfg.num_counterions, sys_cfg.num_water,
+                     ci_elem[:3].upper())
 
-    # Set periodic box vectors on the topology BEFORE creating the system.
-    # SystemGenerator checks the topology for periodicity: without box
-    # vectors it falls back to NoCutoff instead of PME.
-    bx, by, bz = [v * 0.1 for v in sys_cfg.box_angstrom]  # A -> nm
-    box_vectors = (
-        mm.Vec3(bx, 0, 0),
-        mm.Vec3(0, by, 0),
-        mm.Vec3(0, 0, bz),
-    )
-    modeller.topology.setPeriodicBoxVectors(box_vectors)
+    # ── 5. Set box vectors (must precede create_system for PME) ───────
+    bx, by, bz = [v * 0.1 for v in sys_cfg.box_angstrom]
+    modeller.topology.setPeriodicBoxVectors((
+        mm.Vec3(bx, 0, 0), mm.Vec3(0, by, 0), mm.Vec3(0, 0, bz),
+    ))
 
-    log.info("Modeller topology: %d atoms, %d residues, box %.2f x %.2f x %.2f nm",
+    log.info("Topology: %d atoms, %d residues, box %.2f x %.2f x %.2f nm",
              modeller.topology.getNumAtoms(),
-             sum(1 for _ in modeller.topology.residues()),
-             bx, by, bz)
+             sum(1 for _ in modeller.topology.residues()), bx, by, bz)
 
-    # ── 5. SystemGenerator ────────────────────────────────────────────
-    log.info("Creating SystemGenerator  (solute: %s, water: %s)",
-             ff_cfg.small_molecule, ff_cfg.water_model)
+    # ── 6. SystemGenerator ────────────────────────────────────────────
+    log.info("Creating SystemGenerator  (%d unique molecules, water: %s)",
+             len(off_molecules), ff_cfg.water_model)
 
     generator = SystemGenerator(
         forcefields=[ff_cfg.water_model],
         small_molecule_forcefield=ff_cfg.small_molecule,
-        molecules=[stearate_mol, sodium_mol],
+        molecules=off_molecules,
         forcefield_kwargs={"constraints": app.HBonds},
         periodic_forcefield_kwargs={
             "nonbondedMethod": app.PME,
@@ -145,26 +155,19 @@ def parameterize_system(packed_pdb: Path, config: Config):
         },
     )
 
-    log.info("Generating OpenMM System (this may take a moment) ...")
+    log.info("Generating OpenMM System ...")
     system = generator.create_system(modeller.topology)
 
-    # ── 6. Quick sanity checks ────────────────────────────────────────
-    is_periodic = system.usesPeriodicBoundaryConditions()
-    log.info("Periodic: %s", is_periodic)
-    if not is_periodic:
-        raise RuntimeError(
-            "System is not periodic -- PME was not applied. "
-            "Check that the topology has box vectors before create_system()."
-        )
+    # ── 7. Sanity checks ──────────────────────────────────────────────
+    if not system.usesPeriodicBoundaryConditions():
+        raise RuntimeError("System is not periodic -- PME was not applied.")
 
     for force in system.getForces():
         if isinstance(force, mm.NonbondedForce):
-            q_total = sum(
-                force.getParticleParameters(i)[0].value_in_unit(unit.elementary_charge)
-                for i in range(force.getNumParticles())
-            )
+            q = sum(force.getParticleParameters(i)[0].value_in_unit(
+                    unit.elementary_charge) for i in range(force.getNumParticles()))
             log.info("Net charge: %.4f e  |  Constraints: %d",
-                     q_total, system.getNumConstraints())
+                     q, system.getNumConstraints())
             break
 
     return system, modeller.topology, modeller.positions
@@ -173,30 +176,18 @@ def parameterize_system(packed_pdb: Path, config: Config):
 # ── Serialization ─────────────────────────────────────────────────────
 
 
-def save_system(system: mm.System, topology: app.Topology,
-                positions, output_dir: Path) -> None:
-    """Persist the parameterized system to disk."""
+def save_system(system, topology, positions, output_dir: Path) -> None:
     param_dir = output_dir / "parameterize"
     param_dir.mkdir(parents=True, exist_ok=True)
-
-    xml_path = param_dir / "system.xml"
-    xml_path.write_text(mm.XmlSerializer.serialize(system))
-
-    pdb_path = param_dir / "topology.pdb"
-    with pdb_path.open("w") as fh:
+    (param_dir / "system.xml").write_text(mm.XmlSerializer.serialize(system))
+    with (param_dir / "topology.pdb").open("w") as fh:
         app.PDBFile.writeFile(topology, positions, fh)
-
     log.info("Saved system.xml + topology.pdb -> %s", param_dir)
 
 
 def load_system(output_dir: Path):
-    """Load a previously-saved parameterized system.
-
-    Returns (system, topology, positions).
-    """
     param_dir = output_dir / "parameterize"
     system = mm.XmlSerializer.deserialize(
-        (param_dir / "system.xml").read_text()
-    )
+        (param_dir / "system.xml").read_text())
     pdb = app.PDBFile(str(param_dir / "topology.pdb"))
     return system, pdb.topology, pdb.positions

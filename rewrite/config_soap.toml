@@ -1,0 +1,55 @@
+# Typical soap: 20% each of four sodium fatty-acid salts + 20% water (by weight)
+# Counts computed for equal mass per component (reference: 50 stearate)
+
+[[system.solutes]]
+name   = "laurate"
+smiles = "CCCCCCCCCCCC(=O)[O-]"
+count  = 69
+
+[[system.solutes]]
+name   = "myristate"
+smiles = "CCCCCCCCCCCCCC(=O)[O-]"
+count  = 61
+
+[[system.solutes]]
+name   = "palmitate"
+smiles = "CCCCCCCCCCCCCCCC(=O)[O-]"
+count  = 55
+
+[[system.solutes]]
+name   = "stearate"
+smiles = "CCCCCCCCCCCCCCCCCC(=O)[O-]"
+count  = 50
+
+[system]
+# 235 Na+ counterions are auto-computed (one per anion)
+num_water      = 851
+target_density = 0.85    # loose packing for fast PACKMOL; NPT will compress
+
+[forcefield]
+small_molecule = "openff-2.2.0.offxml"
+water_model    = "tip3p.xml"
+
+[simulation]
+temperature_celsius = 80.0
+pressure_bar        = 1.0
+timestep_fs         = 2.0
+friction_per_ps     = 1.0
+platform            = "auto"
+barostat            = "isotropic"
+
+[simulation.minimize]
+max_iterations = 1000
+
+[simulation.equilibrate]
+steps        = 50_000
+log_interval = 500
+
+[simulation.production]
+steps               = 5_000_000    # 10 ns
+dcd_interval        = 5000
+log_interval        = 5000
+checkpoint_interval = 50_000
+
+[output]
+directory = "output_soap"
