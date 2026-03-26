@@ -22,9 +22,10 @@ smiles = "CCCCCCCCCCCCCCCCCC(=O)[O-]"
 count  = 50
 
 [[system.solutes]]
-name   = "propylene_glycol"
-smiles = "CC(O)CO"
-count  = 1007
+name          = "propylene_glycol"
+smiles        = "CC(O)CO"
+count         = 1007
+residue_name  = "PGO"
 
 [system]
 num_water      = 851

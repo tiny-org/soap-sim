@@ -84,17 +84,34 @@ pymol output/simulate/final.pdb
 pymol output/parameterize/topology.pdb output/simulate/trajectory.dcd
 ```
 
-Useful PyMOL commands once inside the viewer:
+Each molecule type gets a 3-letter residue name (`resname`) in the PDB output.
+The default is the first 3 characters of the name in the config, or you can set
+`residue_name` explicitly per solute (e.g. `residue_name = "PGO"`).
+
+Color by molecule type in PyMOL:
 
 ```
-hide everything              # clear the view
-show sticks, resn LAU+MYR+PAL+STE   # show soap chains as sticks
-show spheres, resn NA        # show counterions as spheres
-show lines, resn HOH         # show water as thin lines
-set sphere_scale, 0.4        # shrink spheres
-color green, resn LAU+MYR+PAL+STE
+# Hide everything, then show each type with a distinct style + color
+hide everything
+show sticks, resn LAU
+show sticks, resn MYR
+show sticks, resn PAL
+show sticks, resn STE
+show sticks, resn PGO
+show spheres, resn NA
+show lines, resn HOH
+
+color tv_green, resn LAU
+color limon, resn MYR
+color chartreuse, resn PAL
+color forest, resn STE
+color orange, resn PGO
 color purple, resn NA
-preset.ball_and_stick()      # alternative: ball-and-stick for everything
+color grey80, resn HOH
+set sphere_scale, 0.4
+
+# Adjust these resnames to match your config.
+# Check available names:  iterate (all), print resn
 ```
 
 ## Output

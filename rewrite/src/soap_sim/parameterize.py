@@ -43,7 +43,7 @@ def _rename_residues(topology: app.Topology, solute_specs, n_counterions,
     # Build expected sequence: solute1×n1, solute2×n2, ..., counterions, water
     labels = []
     for spec in solute_specs:
-        labels.extend([spec.residue_name] * spec.count)
+        labels.extend([spec.resname] * spec.count)
     labels.extend([counterion_resname] * n_counterions)
     labels.extend(["HOH"] * n_water)
 
@@ -102,7 +102,7 @@ def parameterize_system(packed_pdb: Path, config: Config):
     for spec in sys_cfg.solutes:
         if spec.smiles not in seen_smiles:
             mol = create_off_molecule(spec.smiles)
-            mol.name = spec.residue_name
+            mol.name = spec.resname
             seen_smiles[spec.smiles] = mol
             off_molecules.append(mol)
         solute_mol_list.extend([seen_smiles[spec.smiles]] * spec.count)

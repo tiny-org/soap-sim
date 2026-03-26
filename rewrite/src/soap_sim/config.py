@@ -33,9 +33,12 @@ class SoluteSpec:
     name: str
     smiles: str
     count: int
+    residue_name: str = ""  # default: first 3 chars of name
 
     @property
-    def residue_name(self) -> str:
+    def resname(self) -> str:
+        if self.residue_name:
+            return self.residue_name.upper()
         return self.name[:3].upper()
 
 

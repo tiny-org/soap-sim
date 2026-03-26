@@ -55,14 +55,13 @@ def create_off_molecule(smiles: str) -> Molecule:
 # ── PDB writers ───────────────────────────────────────────────────────
 
 
-def generate_solute_pdb(smiles: str, name: str, path: Path) -> None:
+def generate_solute_pdb(smiles: str, resname: str, path: Path) -> None:
     """Write a 3-D monomer PDB for any SMILES."""
     mol = _embed(smiles)
     Chem.MolToPDBFile(mol, str(path))
-    resname = name[:3].upper()
     text = path.read_text()
-    path.write_text(text.replace("UNL", resname))
-    log.info("Wrote %s -> %s  (%d atoms)", name, path, mol.GetNumAtoms())
+    path.write_text(text.replace("UNL", resname[:3].upper()))
+    log.info("Wrote %s -> %s  (%d atoms)", resname, path, mol.GetNumAtoms())
 
 
 def generate_counterion_pdb(smiles: str, path: Path) -> None:
@@ -102,7 +101,7 @@ def generate_all_monomers(config, output_dir: Path) -> dict[str, Path]:
 
     for spec in sys_cfg.solutes:
         p = output_dir / f"{spec.name}.pdb"
-        generate_solute_pdb(spec.smiles, spec.name, p)
+        generate_solute_pdb(spec.smiles, spec.resname, p)
         paths[spec.name] = p
 
     p = output_dir / "counterion.pdb"
