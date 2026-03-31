@@ -52,7 +52,9 @@ def cmd_build(args: argparse.Namespace) -> None:
     bx, by, bz = sys_cfg.box_angstrom
     for s in sys_cfg.solutes:
         print(f"  {s.name}: {s.count} molecules")
-    print(f"  counterions: {sys_cfg.num_counterions}  |  water: {sys_cfg.num_water}")
+    for ci, n in sys_cfg.counterion_counts:
+        print(f"  {ci.resname} counterion: {n}")
+    print(f"  water: {sys_cfg.num_water}")
     print(f"  box: {bx:.1f} x {by:.1f} x {bz:.1f} A")
 
     packed = build_system(config)

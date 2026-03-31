@@ -1,6 +1,7 @@
 """Configuration dataclasses and TOML loading."""
 from __future__ import annotations
 
+import math
 import tomllib
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -33,7 +34,7 @@ class SoluteSpec:
     name: str
     smiles: str
     count: int
-    residue_name: str = ""  # default: first 3 chars of name
+    residue_name: str = ""
 
     @property
     def resname(self) -> str:
@@ -43,24 +44,55 @@ class SoluteSpec:
 
 
 @dataclass(frozen=True)
+class CounterionSpec:
+    """One counterion species with its fraction of the total."""
+    smiles: str
+    fraction: float = 1.0  # fraction of total counterions (0-1)
+
+    @property
+    def resname(self) -> str:
+        from rdkit import Chem
+        elem = Chem.MolFromSmiles(self.smiles).GetAtomWithIdx(0).GetSymbol()
+        return elem[:3].upper()
+
+
+@dataclass(frozen=True)
 class SystemConfig:
     solutes: tuple[SoluteSpec, ...] = ()
-    counterion_smiles: str = "[Na+]"
+    counterions: tuple[CounterionSpec, ...] = (CounterionSpec("[Na+]"),)
     num_water: int = 0
     target_density: float = 1.0
     box_dimensions: tuple[float, float, float] | None = None
 
     @property
-    def num_counterions(self) -> int:
-        """Counterions needed to neutralize the total solute charge."""
+    def total_counterions(self) -> int:
+        """Total counterions needed to neutralize the solute charge."""
         total_solute_charge = sum(
             s.count * _formal_charge(s.smiles) for s in self.solutes
         )
-        ci_charge = _formal_charge(self.counterion_smiles)
+        if not self.counterions or total_solute_charge == 0:
+            return 0
+        ci_charge = _formal_charge(self.counterions[0].smiles)
         if ci_charge == 0:
             return 0
-        # e.g. -235 total charge / +1 per Na+ = 235 counterions
         return abs(total_solute_charge) // abs(ci_charge)
+
+    @property
+    def counterion_counts(self) -> list[tuple[CounterionSpec, int]]:
+        """List of (spec, count) for each counterion type."""
+        total = self.total_counterions
+        if total == 0:
+            return []
+        result = []
+        assigned = 0
+        for i, ci in enumerate(self.counterions):
+            if i == len(self.counterions) - 1:
+                n = total - assigned  # last one gets the remainder
+            else:
+                n = round(total * ci.fraction)
+            result.append((ci, n))
+            assigned += n
+        return result
 
     @property
     def box_angstrom(self) -> tuple[float, float, float]:
@@ -73,7 +105,8 @@ class SystemConfig:
 
     def _total_mass_amu(self) -> float:
         mass = self.num_water * MW_WATER
-        mass += self.num_counterions * _mw_with_h(self.counterion_smiles)
+        for ci, n in self.counterion_counts:
+            mass += n * _mw_with_h(ci.smiles)
         for s in self.solutes:
             mass += s.count * _mw_with_h(s.smiles)
         return mass
@@ -111,7 +144,7 @@ class SimulationConfig:
     timestep_fs: float = 2.0
     friction_per_ps: float = 1.0
     platform: str = "auto"
-    barostat: str = "isotropic"  # isotropic | anisotropic
+    barostat: str = "isotropic"
     minimize: MinimizeConfig = field(default_factory=MinimizeConfig)
     equilibrate: EquilibrateConfig = field(default_factory=EquilibrateConfig)
     production: ProductionConfig = field(default_factory=ProductionConfig)
@@ -137,12 +170,16 @@ class Config:
 # ── Loader ────────────────────────────────────────────────────────────
 
 
-def _num_water_from_fraction(solutes, counterion_smiles, weight_fraction):
+def _num_water_from_fraction(solutes, counterions, weight_fraction):
     """Compute water count so that water is *weight_fraction* of total mass."""
-    soap_mass = sum(
-        s.count * (_mw_with_h(s.smiles) + _mw_with_h(counterion_smiles))
-        for s in solutes
-    )
+    soap_mass = 0.0
+    for s in solutes:
+        soap_mass += s.count * _mw_with_h(s.smiles)
+    # Approximate: use average counterion MW weighted by fraction
+    avg_ci_mw = sum(ci.fraction * _mw_with_h(ci.smiles) for ci in counterions)
+    total_anions = sum(s.count for s in solutes
+                       if _formal_charge(s.smiles) < 0)
+    soap_mass += total_anions * avg_ci_mw
     mass_water = soap_mass * weight_fraction / (1.0 - weight_fraction)
     return round(mass_water / MW_WATER)
 
@@ -165,19 +202,29 @@ def load_config(path: Path) -> Config:
     if not solutes:
         raise ValueError("Config must define at least one [[system.solutes]] entry")
 
-    counterion = sys_raw.pop("counterion_smiles", "[Na+]")
+    # Counterions: list or legacy single string
+    ci_raw = sys_raw.pop("counterions", None)
+    if ci_raw is not None:
+        counterions = tuple(CounterionSpec(**c) for c in ci_raw)
+        frac_sum = sum(c.fraction for c in counterions)
+        if abs(frac_sum - 1.0) > 0.01:
+            raise ValueError(
+                f"Counterion fractions must sum to 1.0, got {frac_sum:.3f}")
+    else:
+        ci_smiles = sys_raw.pop("counterion_smiles", "[Na+]")
+        counterions = (CounterionSpec(ci_smiles),)
 
     if "num_water" in sys_raw:
         num_water = sys_raw.pop("num_water")
     elif "water_weight_fraction" in sys_raw:
         wf = sys_raw.pop("water_weight_fraction")
-        num_water = _num_water_from_fraction(solutes, counterion, wf)
+        num_water = _num_water_from_fraction(solutes, counterions, wf)
     else:
         raise ValueError("Config must set either num_water or water_weight_fraction")
 
     system = SystemConfig(
         solutes=solutes,
-        counterion_smiles=counterion,
+        counterions=counterions,
         num_water=num_water,
         target_density=sys_raw.pop("target_density", 1.0),
         box_dimensions=box_dim,

@@ -40,15 +40,16 @@ def _write_packmol_input(config: Config, monomer_dir: Path,
             "",
         ]
 
-    # Counterions
-    lines += [
-        f"# Counterions ({sys.counterion_smiles})",
-        f"structure {monomer_dir / 'counterion.pdb'}",
-        f"  number {sys.num_counterions}",
-        f"  inside box 0.0 0.0 0.0 {box_str}",
-        "end structure",
-        "",
-    ]
+    # One block per counterion type
+    for ci, count in sys.counterion_counts:
+        lines += [
+            f"# Counterion ({ci.smiles}, {ci.resname})",
+            f"structure {monomer_dir / f'counterion_{ci.resname.lower()}.pdb'}",
+            f"  number {count}",
+            f"  inside box 0.0 0.0 0.0 {box_str}",
+            "end structure",
+            "",
+        ]
 
     # Water
     lines += [
@@ -98,11 +99,12 @@ def build_system(config: Config) -> Path:
     sys = config.system
     n_total = (
         sum(s.count * atom_count(s.smiles) for s in sys.solutes)
-        + sys.num_counterions * atom_count(sys.counterion_smiles)
+        + sum(n * atom_count(ci.smiles) for ci, n in sys.counterion_counts)
         + sys.num_water * 3
     )
     for s in sys.solutes:
         log.info("  %s: %d molecules", s.name, s.count)
-    log.info("  counterions: %d  |  water: %d  |  total atoms: %d",
-             sys.num_counterions, sys.num_water, n_total)
+    for ci, n in sys.counterion_counts:
+        log.info("  %s: %d ions", ci.resname, n)
+    log.info("  water: %d  |  total atoms: %d", sys.num_water, n_total)
     return packed_pdb

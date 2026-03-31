@@ -104,9 +104,10 @@ def generate_all_monomers(config, output_dir: Path) -> dict[str, Path]:
         generate_solute_pdb(spec.smiles, spec.resname, p)
         paths[spec.name] = p
 
-    p = output_dir / "counterion.pdb"
-    generate_counterion_pdb(sys_cfg.counterion_smiles, p)
-    paths["counterion"] = p
+    for i, (ci, count) in enumerate(sys_cfg.counterion_counts):
+        p = output_dir / f"counterion_{ci.resname.lower()}.pdb"
+        generate_counterion_pdb(ci.smiles, p)
+        paths[f"counterion_{ci.resname}"] = p
 
     p = output_dir / "water.pdb"
     generate_water_pdb(p)

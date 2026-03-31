@@ -37,17 +37,9 @@ def _build_water_topology(num_water: int) -> app.Topology:
     return topo
 
 
-def _rename_residues(topology: app.Topology, solute_specs, n_counterions,
-                     n_water, counterion_resname: str) -> None:
-    """Label every residue for SystemGenerator template matching."""
-    # Build expected sequence: solute1×n1, solute2×n2, ..., counterions, water
-    labels = []
-    for spec in solute_specs:
-        labels.extend([spec.resname] * spec.count)
-    labels.extend([counterion_resname] * n_counterions)
-    labels.extend(["HOH"] * n_water)
-
-    for idx, (chain, res) in enumerate(
+def _rename_residues(topology: app.Topology, labels: list[str]) -> None:
+    """Set residue names from an ordered label list."""
+    for idx, (_, res) in enumerate(
         (ch, r) for ch in topology.chains() for r in ch.residues()
     ):
         if idx < len(labels):
@@ -71,32 +63,27 @@ def parameterize_system(packed_pdb: Path, config: Config):
     all_pos_nm = np.array(pdb.getPositions().value_in_unit(unit.nanometers))
 
     # ── 2. Slice positions by PACKMOL ordering ────────────────────────
-    #   solute1 × n1 | solute2 × n2 | … | counterions | water
+    #   solute1×n1 | solute2×n2 | … | counterion_type1 | counterion_type2 | … | water
     offset = 0
-    solute_atom_counts = []
     for spec in sys_cfg.solutes:
-        na = spec.count * atom_count(spec.smiles)
-        solute_atom_counts.append(na)
-        offset += na
+        offset += spec.count * atom_count(spec.smiles)
+    for ci, n in sys_cfg.counterion_counts:
+        offset += n * atom_count(ci.smiles)
 
-    ci_atoms = sys_cfg.num_counterions * atom_count(sys_cfg.counterion_smiles)
-    offset += ci_atoms
-
+    n_solute_total = offset
     n_water_atoms = sys_cfg.num_water * WATER_NUM_ATOMS
 
-    n_solute_total = sum(solute_atom_counts) + ci_atoms
     solute_pos = all_pos_nm[:n_solute_total] * unit.nanometers
     water_pos = all_pos_nm[n_solute_total:n_solute_total + n_water_atoms] * unit.nanometers
 
-    log.info("Atoms: %s + %d counterion + %d water = %d",
-             " + ".join(str(n) for n in solute_atom_counts),
-             ci_atoms, n_water_atoms,
-             n_solute_total + n_water_atoms)
+    log.info("Solute atoms: %d  |  Water atoms: %d  |  Total: %d",
+             n_solute_total, n_water_atoms, n_solute_total + n_water_atoms)
 
     # ── 3. Build solute topology via OpenFF ───────────────────────────
     log.info("Building solute topology with OpenFF ...")
     off_molecules = []   # unique molecules for SystemGenerator
     solute_mol_list = []  # ordered list matching PACKMOL layout
+    residue_labels = []  # for renaming
 
     seen_smiles: dict[str, object] = {}
     for spec in sys_cfg.solutes:
@@ -106,19 +93,18 @@ def parameterize_system(packed_pdb: Path, config: Config):
             seen_smiles[spec.smiles] = mol
             off_molecules.append(mol)
         solute_mol_list.extend([seen_smiles[spec.smiles]] * spec.count)
+        residue_labels.extend([spec.resname] * spec.count)
 
-    # Counterion
-    ci_smiles = sys_cfg.counterion_smiles
-    from rdkit import Chem
-    ci_elem = Chem.MolFromSmiles(ci_smiles).GetAtomWithIdx(0).GetSymbol()
-    ci_resname = ci_elem[:3].upper()
-
-    if ci_smiles not in seen_smiles:
-        ci_mol = create_off_molecule(ci_smiles)
-        ci_mol.name = ci_resname
-        seen_smiles[ci_smiles] = ci_mol
-        off_molecules.append(ci_mol)
-    solute_mol_list.extend([seen_smiles[ci_smiles]] * sys_cfg.num_counterions)
+    # Counterions (one or more types)
+    for ci, n in sys_cfg.counterion_counts:
+        if ci.smiles not in seen_smiles:
+            mol = create_off_molecule(ci.smiles)
+            mol.name = ci.resname
+            seen_smiles[ci.smiles] = mol
+            off_molecules.append(mol)
+        solute_mol_list.extend([seen_smiles[ci.smiles]] * n)
+        residue_labels.extend([ci.resname] * n)
+        log.info("  counterion %s: %d ions", ci.resname, n)
 
     off_topo = Topology.from_molecules(solute_mol_list)
     omm_solute_topo = off_topo.to_openmm()
@@ -128,9 +114,8 @@ def parameterize_system(packed_pdb: Path, config: Config):
     water_topo = _build_water_topology(sys_cfg.num_water)
     modeller.add(water_topo, water_pos)
 
-    _rename_residues(modeller.topology, sys_cfg.solutes,
-                     sys_cfg.num_counterions, sys_cfg.num_water,
-                     ci_resname)
+    residue_labels.extend(["HOH"] * sys_cfg.num_water)
+    _rename_residues(modeller.topology, residue_labels)
 
     # ── 5. Set box vectors (must precede create_system for PME) ───────
     bx, by, bz = [v * 0.1 for v in sys_cfg.box_angstrom]
