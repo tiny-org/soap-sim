@@ -183,6 +183,9 @@ def load_config(path: Path) -> Config:
         box_dimensions=box_dim,
     )
 
+    if sys_raw:
+        raise ValueError(f"Unknown [system] config keys: {list(sys_raw.keys())}")
+
     # ── Force field ───────────────────────────────────────────────────
     forcefield = ForceFieldConfig(**raw.get("forcefield", {}))
 

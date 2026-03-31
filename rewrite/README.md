@@ -12,7 +12,7 @@ TOML file.
 micromamba create -n soap python=3.12
 micromamba activate soap
 micromamba install -c conda-forge \
-    openmm openmmforcefields openff-toolkit rdkit parmed numpy packmol \
+    openmm openmmforcefields openff-toolkit rdkit numpy packmol \
     pymol-open-source
 export OPENMM_DEFAULT_PLATFORM=CPU   # Apple Silicon only
 cd rewrite && pip install -e .
@@ -152,8 +152,8 @@ set sphere_scale, 0.4
 output/
   build/           monomers + packmol.inp + packed.pdb
   parameterize/    system.xml + topology.pdb
-  simulate/        minimized.pdb, equilibrated.pdb, trajectory.dcd,
-                   production.csv, checkpoint.chk, final.pdb
+  simulate/        minimized.pdb, equilibrated.pdb, equilibration.csv,
+                   trajectory.dcd, production.csv, checkpoint.chk, final.pdb
 ```
 
 ## Architecture

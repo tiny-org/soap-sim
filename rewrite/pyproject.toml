@@ -11,7 +11,6 @@ requires-python = ">=3.12"
 # install them via conda/micromamba before `pip install -e .`
 dependencies = [
     "numpy",
-    "parmed",
 ]
 
 [project.scripts]

@@ -109,9 +109,13 @@ def parameterize_system(packed_pdb: Path, config: Config):
 
     # Counterion
     ci_smiles = sys_cfg.counterion_smiles
+    from rdkit import Chem
+    ci_elem = Chem.MolFromSmiles(ci_smiles).GetAtomWithIdx(0).GetSymbol()
+    ci_resname = ci_elem[:3].upper()
+
     if ci_smiles not in seen_smiles:
         ci_mol = create_off_molecule(ci_smiles)
-        ci_mol.name = "NA"
+        ci_mol.name = ci_resname
         seen_smiles[ci_smiles] = ci_mol
         off_molecules.append(ci_mol)
     solute_mol_list.extend([seen_smiles[ci_smiles]] * sys_cfg.num_counterions)
@@ -124,11 +128,9 @@ def parameterize_system(packed_pdb: Path, config: Config):
     water_topo = _build_water_topology(sys_cfg.num_water)
     modeller.add(water_topo, water_pos)
 
-    from rdkit import Chem
-    ci_elem = Chem.MolFromSmiles(ci_smiles).GetAtomWithIdx(0).GetSymbol()
     _rename_residues(modeller.topology, sys_cfg.solutes,
                      sys_cfg.num_counterions, sys_cfg.num_water,
-                     ci_elem[:3].upper())
+                     ci_resname)
 
     # ── 5. Set box vectors (must precede create_system for PME) ───────
     bx, by, bz = [v * 0.1 for v in sys_cfg.box_angstrom]
