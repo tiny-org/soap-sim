@@ -1,0 +1,10 @@
+; Potassium ion (K+) - MARTINI 2 coarse-grained topology
+; 1 bead: Qd (charged donor)
+
+[moleculetype]
+; molname  nrexcl
+  K+       1
+
+[atoms]
+; nr  type  resnr  residu  atom  cgnr  charge  mass
+  1   Qd    1      K+      K     1      1.0    39.1
