@@ -72,6 +72,38 @@ directory = "output_soap"
 See `config_soap.toml` (4-soap mixture) and `config_lamellar.toml` (lamellar phase)
 for complete examples.
 
+## Molecule reference
+
+Any SMILES string works as a solute. Here are pre-tested molecules:
+
+### Fatty acid soaps (anionic, need counterion)
+
+| Name | SMILES | MW | Charge |
+|---|---|---|---|
+| laurate (C12) | `CCCCCCCCCCCC(=O)[O-]` | 199.3 | -1 |
+| myristate (C14) | `CCCCCCCCCCCCCC(=O)[O-]` | 227.4 | -1 |
+| palmitate (C16) | `CCCCCCCCCCCCCCCC(=O)[O-]` | 255.4 | -1 |
+| stearate (C18) | `CCCCCCCCCCCCCCCCCC(=O)[O-]` | 283.5 | -1 |
+| oleate (C18:1) | `CCCCCCCC/C=C\CCCCCCCC(=O)[O-]` | 281.5 | -1 |
+| ricinoleate (C18:1, 12-OH) | `CCCCCCC(O)C/C=C\CCCCCCCC(=O)[O-]` | 297.5 | -1 |
+
+### Counterions
+
+| Name | SMILES |
+|---|---|
+| sodium | `[Na+]` |
+| potassium | `[K+]` |
+
+### Solvents and polyols (neutral)
+
+| Name | SMILES | MW |
+|---|---|---|
+| ethanol | `CCO` | 46.1 |
+| propylene glycol | `CC(O)CO` | 76.1 |
+| glycerol | `OCC(O)CO` | 92.1 |
+| sorbitol | `OC[C@@H](O)[C@H](O)[C@@H](O)[C@@H](O)CO` | 182.2 |
+| sucrose | `OC[C@H]1OC(O[C@@]2(CO)OC(CO)[C@@H](O)[C@@H]2O)[C@H](O)[C@@H](O)[C@@H]1O` | 342.3 |
+
 ## Visualization
 
 Use PyMOL to inspect structures and play back trajectories:

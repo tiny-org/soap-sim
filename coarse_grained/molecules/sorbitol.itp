@@ -1,0 +1,15 @@
+; Sorbitol - MARTINI 2 coarse-grained topology
+; 2 beads: P1 + P1 (bonded)
+
+[moleculetype]
+; molname  nrexcl
+  SOR      1
+
+[atoms]
+; nr  type  resnr  residu  atom  cgnr  charge  mass
+  1   P1    1      SOR     S1    1      0.0    72.0
+  2   P1    1      SOR     S2    2      0.0    72.0
+
+[bonds]
+; i  j  funct  length  force.c.
+  1  2  1      0.47    1250

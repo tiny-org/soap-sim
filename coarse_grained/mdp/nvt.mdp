@@ -1,0 +1,67 @@
+; ============================================================================
+; NVT EQUILIBRATION - MARTINI 2 Coarse-Grained
+; ============================================================================
+; System: Soap / Water / Propylene Glycol mixture at 80 C (353.15 K), 1 bar
+; Force field: MARTINI 2
+; Purpose: 1 ns NVT equilibration at 353.15 K to thermalise the system
+;          after energy minimization, before switching on pressure coupling.
+; Duration: 50000 steps x 0.020 ps = 1 ns
+; ============================================================================
+
+; --- Run control ----
+integrator      = md            ; Leap-frog MD integrator
+dt              = 0.020         ; Time step [ps] -- 20 fs, standard for MARTINI
+nsteps          = 50000         ; Total steps: 50000 x 0.020 ps = 1 ns
+tinit           = 0             ; Starting time [ps]
+
+; --- Output control ----
+nstxout-compressed  = 5000      ; Save compressed coordinates every 5000 steps (100 ps)
+nstenergy           = 500       ; Write energies every 500 steps (10 ps)
+nstlog              = 500       ; Write to log every 500 steps (10 ps)
+
+; --- Neighbour searching ----
+; MARTINI 2 requires the Verlet cutoff scheme with buffered neighbour lists.
+cutoff-scheme   = Verlet
+nstlist         = 20            ; Update neighbour list every 20 steps (MARTINI standard)
+pbc             = xyz           ; Periodic boundary conditions in all directions
+
+; --- Electrostatics ----
+; MARTINI uses reaction-field electrostatics with a relative permittivity of 15,
+; which implicitly screens charged interactions to mimic the coarse-grained
+; representation. epsilon_rf = 0 gives a conducting (tin-foil) boundary.
+coulombtype             = reaction-field
+rcoulomb                = 1.1           ; Coulomb cutoff [nm] (MARTINI standard)
+epsilon_r               = 15            ; Relative dielectric constant (MARTINI 2)
+epsilon_rf              = 0             ; Reaction-field dielectric: infinity (tin-foil)
+coulomb-modifier        = Potential-shift-verlet  ; Shift potential to zero at cutoff
+
+; --- Van der Waals ----
+; MARTINI uses a shifted LJ potential with a 1.1 nm cutoff.
+vdw_type                = cutoff
+rvdw                    = 1.1           ; VdW cutoff [nm] (MARTINI standard)
+vdw-modifier            = Potential-shift-verlet  ; Shift potential to zero at cutoff
+
+; --- Temperature coupling ----
+; v-rescale (velocity rescaling with a stochastic term) provides a proper
+; canonical ensemble and is the recommended thermostat for MARTINI simulations.
+; tau_t = 1.0 ps is the standard MARTINI coupling time constant.
+tcoupl          = v-rescale     ; Velocity-rescale thermostat (Bussi et al.)
+tc-grps         = System        ; Single coupling group for the whole system
+tau_t           = 1.0           ; Temperature coupling time constant [ps]
+ref_t           = 353.15        ; Reference temperature [K] (80 C)
+
+; --- Velocity generation ----
+; Generate initial velocities from a Maxwell-Boltzmann distribution at 353.15 K.
+gen_vel         = yes           ; Generate velocities at startup
+gen_temp        = 353.15        ; Temperature for velocity generation [K] (80 C)
+gen_seed        = -1            ; Random seed (-1 = use a pseudo-random seed)
+
+; --- Constraints ----
+; MARTINI 2 generally does not use constraints for standard CG beads (the
+; 20 fs timestep is stable without them). Constraints are only needed for
+; ring structures (e.g. cholesterol) which use LINCS; not required here.
+constraints     = none
+
+; --- Pressure coupling ----
+; No pressure coupling during NVT equilibration.
+pcoupl          = no

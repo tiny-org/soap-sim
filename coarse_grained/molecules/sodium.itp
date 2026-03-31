@@ -1,0 +1,10 @@
+; Sodium ion (Na+) - MARTINI 2 coarse-grained topology
+; 1 bead: Qd (donor, positive charge)
+
+[moleculetype]
+; molname  nrexcl
+  NA+      1
+
+[atoms]
+; nr  type  resnr  residu  atom  cgnr  charge  mass
+  1   Qd    1      NA+     NA    1      1.0    23.0

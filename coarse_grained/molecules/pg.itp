@@ -1,0 +1,10 @@
+; Propylene glycol - MARTINI 2 coarse-grained topology
+; 1 bead: P1 (small polar)
+
+[moleculetype]
+; molname  nrexcl
+  PGO      1
+
+[atoms]
+; nr  type  resnr  residu  atom  cgnr  charge  mass
+  1   P1    1      PGO     PG    1      0.0    76.0

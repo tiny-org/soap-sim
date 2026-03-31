@@ -1,0 +1,61 @@
+# Soap + propylene glycol CG system
+# 10% each of C12/C14/C16/C18 soaps, 10% water, 50% propylene glycol (by weight)
+# Counts computed with 200 stearate as reference
+
+# ── Molecules ─────────────────────────────────────────────────────────
+# name     = molecule ITP name (must match [moleculetype] in molecules/*.itp)
+# count    = number of molecules
+# n_beads  = CG beads per molecule (for coordinate generation)
+# is_chain = true for multi-bead linear chains (soaps), false for single-bead
+
+[[molecules]]
+name     = "LAU"
+count    = 276
+n_beads  = 4
+is_chain = true
+
+[[molecules]]
+name     = "MYR"
+count    = 245
+n_beads  = 4
+is_chain = true
+
+[[molecules]]
+name     = "PAL"
+count    = 220
+n_beads  = 5
+is_chain = true
+
+[[molecules]]
+name     = "STR"
+count    = 200
+n_beads  = 5
+is_chain = true
+
+[[molecules]]
+name     = "NA+"
+count    = 941
+n_beads  = 1
+is_chain = false
+
+[[molecules]]
+name     = "PGO"
+count    = 4029
+n_beads  = 1
+is_chain = false
+
+[[molecules]]
+name     = "W"
+count    = 851
+n_beads  = 1
+is_chain = false
+
+# ── System settings ───────────────────────────────────────────────────
+
+[system]
+box = [15.0, 15.0, 15.0]   # nm (cubic box)
+name = "Soap-PG CG System"
+
+[simulation]
+temperature = 353.15        # K (80 C)
+pressure    = 1.0           # bar

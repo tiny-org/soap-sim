@@ -1,0 +1,10 @@
+; MARTINI water - MARTINI 2 coarse-grained topology
+; 1 bead: P4 (represents 4 water molecules)
+
+[moleculetype]
+; molname  nrexcl
+  W        1
+
+[atoms]
+; nr  type  resnr  residu  atom  cgnr  charge  mass
+  1   P4    1      W       W     1      0.0    72.0

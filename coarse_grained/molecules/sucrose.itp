@@ -1,0 +1,21 @@
+; Sucrose - MARTINI 2 coarse-grained topology
+; 3 beads: P1 + P1 + P1 (bonded chain)
+
+[moleculetype]
+; molname  nrexcl
+  SUC      1
+
+[atoms]
+; nr  type  resnr  residu  atom  cgnr  charge  mass
+  1   P1    1      SUC     S1    1      0.0    114.0
+  2   P1    1      SUC     S2    2      0.0    114.0
+  3   P1    1      SUC     S3    3      0.0    114.0
+
+[bonds]
+; i  j  funct  length  force.c.
+  1  2  1      0.47    1250
+  2  3  1      0.47    1250
+
+[angles]
+; i  j  k  funct  angle  force.c.
+  1  2  3  2      150.0  25.0

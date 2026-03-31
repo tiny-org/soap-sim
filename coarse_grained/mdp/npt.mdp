@@ -1,0 +1,75 @@
+; ============================================================================
+; NPT PRODUCTION - MARTINI 2 Coarse-Grained
+; ============================================================================
+; System: Soap / Water / Propylene Glycol mixture at 80 C (353.15 K), 1 bar
+; Force field: MARTINI 2
+; Purpose: 1 microsecond NPT production run at 353.15 K and 1 bar.
+;          Continues from the NVT-equilibrated system (gen_vel = no,
+;          continuation = yes).
+; Duration: 50000000 steps x 0.020 ps = 1,000,000 ps = 1 us
+; ============================================================================
+
+; --- Run control ----
+integrator      = md            ; Leap-frog MD integrator
+dt              = 0.020         ; Time step [ps] -- 20 fs, standard for MARTINI
+nsteps          = 50000000      ; Total steps: 5e7 x 0.020 ps = 1 us
+tinit           = 0             ; Starting time [ps]
+
+; --- Output control ----
+; Trajectory is saved every 0.5 ns to keep file sizes manageable over 1 us.
+nstxout-compressed  = 25000     ; Save compressed coordinates every 25000 steps (0.5 ns)
+nstenergy           = 5000      ; Write energies every 5000 steps (100 ps)
+nstlog              = 5000      ; Write to log every 5000 steps (100 ps)
+
+; --- Neighbour searching ----
+; MARTINI 2 requires the Verlet cutoff scheme with buffered neighbour lists.
+cutoff-scheme   = Verlet
+nstlist         = 20            ; Update neighbour list every 20 steps (MARTINI standard)
+pbc             = xyz           ; Periodic boundary conditions in all directions
+
+; --- Electrostatics ----
+; MARTINI uses reaction-field electrostatics with a relative permittivity of 15,
+; which implicitly screens charged interactions to mimic the coarse-grained
+; representation. epsilon_rf = 0 gives a conducting (tin-foil) boundary.
+coulombtype             = reaction-field
+rcoulomb                = 1.1           ; Coulomb cutoff [nm] (MARTINI standard)
+epsilon_r               = 15            ; Relative dielectric constant (MARTINI 2)
+epsilon_rf              = 0             ; Reaction-field dielectric: infinity (tin-foil)
+coulomb-modifier        = Potential-shift-verlet  ; Shift potential to zero at cutoff
+
+; --- Van der Waals ----
+; MARTINI uses a shifted LJ potential with a 1.1 nm cutoff.
+vdw_type                = cutoff
+rvdw                    = 1.1           ; VdW cutoff [nm] (MARTINI standard)
+vdw-modifier            = Potential-shift-verlet  ; Shift potential to zero at cutoff
+
+; --- Temperature coupling ----
+; v-rescale (velocity rescaling with a stochastic term) provides a proper
+; canonical ensemble and is the recommended thermostat for MARTINI simulations.
+; tau_t = 1.0 ps is the standard MARTINI coupling time constant.
+tcoupl          = v-rescale     ; Velocity-rescale thermostat (Bussi et al.)
+tc-grps         = System        ; Single coupling group for the whole system
+tau_t           = 1.0           ; Temperature coupling time constant [ps]
+ref_t           = 353.15        ; Reference temperature [K] (80 C)
+
+; --- Pressure coupling ----
+; Parrinello-Rahman barostat for production dynamics -- gives correct NPT
+; ensemble fluctuations. tau_p = 12.0 ps is the MARTINI-recommended value
+; (must be large enough to avoid resonance with the thermostat).
+; Compressibility 3e-4 bar^-1 is appropriate for MARTINI water.
+pcoupl          = Parrinello-Rahman     ; Parrinello-Rahman barostat
+pcoupltype      = isotropic             ; Isotropic pressure coupling
+tau_p           = 12.0                  ; Pressure coupling time constant [ps]
+ref_p           = 1.0                   ; Reference pressure [bar]
+compressibility = 3e-4                  ; Compressibility [bar^-1] (MARTINI water)
+
+; --- Velocity generation ----
+; Do NOT regenerate velocities -- continue from the NVT-equilibrated state.
+gen_vel         = no
+continuation    = yes           ; Continue from previous run (no constraint reset)
+
+; --- Constraints ----
+; MARTINI 2 generally does not use constraints for standard CG beads (the
+; 20 fs timestep is stable without them). Constraints are only needed for
+; ring structures (e.g. cholesterol) which use LINCS; not required here.
+constraints     = none

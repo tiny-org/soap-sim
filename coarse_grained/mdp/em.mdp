@@ -1,0 +1,35 @@
+; ============================================================================
+; ENERGY MINIMIZATION - MARTINI 2 Coarse-Grained
+; ============================================================================
+; System: Soap / Water / Propylene Glycol mixture
+; Force field: MARTINI 2
+; Purpose: Steepest-descent energy minimization to remove steric clashes
+;          and relax the initial configuration before equilibration.
+; ============================================================================
+
+; --- Run control ----
+integrator      = steep         ; Steepest-descent energy minimization
+nsteps          = 10000         ; Maximum number of minimization steps
+emtol           = 1000.0        ; Convergence criterion: stop when max force < 1000 kJ/mol/nm
+
+; --- Neighbour searching ----
+; MARTINI 2 requires the Verlet cutoff scheme with buffered neighbour lists.
+cutoff-scheme   = Verlet
+nstlist         = 20            ; Update neighbour list every 20 steps (MARTINI standard)
+pbc             = xyz           ; Periodic boundary conditions in all directions
+
+; --- Electrostatics ----
+; MARTINI uses reaction-field electrostatics with a relative permittivity of 15,
+; which implicitly screens charged interactions to mimic the coarse-grained
+; representation. epsilon_rf = 0 gives a conducting boundary (tin-foil).
+coulombtype             = reaction-field
+rcoulomb                = 1.1           ; Coulomb cutoff [nm] (MARTINI standard)
+epsilon_r               = 15            ; Relative dielectric constant (MARTINI 2)
+epsilon_rf              = 0             ; Reaction-field dielectric: infinity (tin-foil)
+coulomb-modifier        = Potential-shift-verlet  ; Shift potential to zero at cutoff
+
+; --- Van der Waals ----
+; MARTINI uses a shifted LJ potential with a 1.1 nm cutoff.
+vdw_type                = cutoff
+rvdw                    = 1.1           ; VdW cutoff [nm] (MARTINI standard)
+vdw-modifier            = Potential-shift-verlet  ; Shift potential to zero at cutoff
